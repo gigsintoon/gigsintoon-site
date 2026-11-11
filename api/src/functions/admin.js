@@ -225,12 +225,23 @@ app.http('adminMediaDelete', {
       const inUse = new Set((await query(`SELECT BlobPath FROM music.Images`)).map(r => r.BlobPath));
       const c = mediaContainer();
       const result = { deleted: [], wouldDelete: [], notFound: [], keptInUse: [] };
+      const listed = body.allTextFiles === true;   // names came straight from storage, so they exist
+      const todo = [];
       for (const p of paths) {
-        if (body.allTextFiles === true && !/\.txt$/i.test(p)) continue;
+        if (listed && !/\.txt$/i.test(p)) continue;
         if (inUse.has(p)) { result.keptInUse.push(p); continue; }
-        const blob = c.getBlobClient(p);
-        if (!(await blob.exists())) { result.notFound.push(p); continue; }
-        if (body.confirm === true) { await blob.delete(); result.deleted.push(p); } else result.wouldDelete.push(p);
+        todo.push(p);
+      }
+      // 20 at a time so a few thousand files finish inside the 45-second web limit
+      for (let k = 0; k < todo.length; k += 20) {
+        await Promise.all(todo.slice(k, k + 20).map(async p => {
+          const blob = c.getBlobClient(p);
+          if (body.confirm === true) {
+            const r = await blob.deleteIfExists();
+            (r.succeeded ? result.deleted : result.notFound).push(p);
+          } else if (listed || await blob.exists()) result.wouldDelete.push(p);
+          else result.notFound.push(p);
+        }));
       }
       return json({ ok: true, confirm: body.confirm === true, counts: Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v.length])), ...result });
     } catch (err) {
