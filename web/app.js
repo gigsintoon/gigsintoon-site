@@ -24,10 +24,22 @@ function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;'
 let handles = {};
 function words(tag) { return tag.replace(/_/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2'); }
 function renderWriteUp(text) {
-  return esc(text).replace(/([@#])([A-Za-z0-9_.]*[A-Za-z0-9_])/g, (all, sym, tag) => {
-    const b = handles[tag.toLowerCase()];
-    return b ? `<button class="bandlink" data-band="${b.id}">${esc(b.name)}</button>` : words(tag);
-  });
+  // find the tags in the raw text first, then escape the pieces (escaping first turns ' into &#39; and the # gets eaten)
+  const re = /([@#])([A-Za-z0-9_.]*[A-Za-z0-9_])/g;
+  let out = '', last = 0, m;
+  const seen = new Set();
+  while ((m = re.exec(text))) {
+    out += esc(text.slice(last, m.index));
+    const b = handles[m[2].toLowerCase()];
+    if (b) {
+      // "@kingblues @kingbluesband" -> show the band once
+      const prevSame = seen.has(b.id) && /^\s*$/.test(text.slice(last, m.index)) && last > 0;
+      if (!prevSame) out += `<button class="bandlink" data-band="${b.id}">${esc(b.name)}</button>`;
+      seen.add(b.id);
+    } else out += esc(words(m[2]));
+    last = m.index + m[0].length;
+  }
+  return out + esc(text.slice(last));
 }
 
 async function api(path) {
