@@ -23,9 +23,18 @@ function mediaBaseUrl() {
 
 async function readImportFile(name) {
   const svc = BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING);
-  const blob = svc.getContainerClient('import').getBlobClient(name);
-  const buf = await blob.downloadToBuffer();
-  return JSON.parse(buf.toString('utf8'));
+  const container = svc.getContainerClient('import');
+  if (!(await container.exists())) throw new Error("There's no container called 'import' in the storage account.");
+  // Accept the file at the top level or inside a folder (e.g. _import/releases-11.json)
+  const seen = [];
+  for await (const b of container.listBlobsFlat()) {
+    seen.push(b.name);
+    if (b.name === name || b.name.endsWith('/' + name)) {
+      const buf = await container.getBlobClient(b.name).downloadToBuffer();
+      return JSON.parse(buf.toString('utf8').replace(/^\uFEFF/, ''));
+    }
+  }
+  throw new Error(`${name} isn't in the 'import' container. Files found: ${seen.slice(0, 20).join(', ') || 'none'}`);
 }
 
 // One set-based batch: bands -> releases -> images. Safe to run more than once.
