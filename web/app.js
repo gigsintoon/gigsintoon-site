@@ -23,7 +23,19 @@ function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;'
 // Tags that aren't a band (labels, venues, people) become plain words: "#o2AcademyNewcastle" -> "o2 Academy Newcastle".
 let handles = {};
 function words(tag) { return tag.replace(/_/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2'); }
+// The write-ups were written as "on this day" posts. On the site the card already shows the date, so lead with the year:
+// "On this day in 2021 @band released…" -> "In 2021, @band released…". Display only – the text itself isn't changed.
+function yearLed(text) {
+  let t = String(text || '');
+  t = t.replace(/^\s*(?:also,?\s+)?on\s+t?h?is\s+day,?\s+(?:in|on)?\s*(?:the\s+year\s+)?(\d{4}),?\s*/i, 'In $1, ');
+  t = t.replace(/^\s*(?:also\s+)?released\s+on\s+this\s+day\s+in\s+(?:the\s+year\s+)?(\d{4})/i, 'Released in $1');
+  t = t.replace(/^\s*Happy\s+Birthday\s+to\s+/i, '');
+  t = t.replace(/,?\s*(?:was\s+)?released\s+on\s+this\s+day\s+in\s+(?:the\s+year\s+)?(\d{4})/i, ', released in $1');
+  t = t.replace(/\bon\s+this\s+day\s+in\s+(?:the\s+year\s+)?(\d{4})/i, 'in $1');
+  return t;
+}
 function renderWriteUp(text) {
+  text = yearLed(text);
   // find the tags in the raw text first, then escape the pieces (escaping first turns ' into &#39; and the # gets eaten)
   const re = /([@#])([A-Za-z0-9_.]*[A-Za-z0-9_])/g;
   let out = '', last = 0, m;
