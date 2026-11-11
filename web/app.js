@@ -4,6 +4,12 @@ const MONTHS = ['January','February','March','April','May','June','July','August
 const STATUS_LABEL = { NotPosted: 'Not posted', Drafted: 'Drafted', Posted: 'Posted', DoNotPost: 'Do not post' };
 
 let current = ukToday();
+let isAdmin = false;                                   // signed in as owner
+const params = new URLSearchParams(location.search);
+let asVisitor = sessionStorageGet('asVisitor') === '1'; // owner previewing the public view
+
+function sessionStorageGet(k) { try { return sessionStorage.getItem(k); } catch { return null; } }
+function sessionStorageSet(k, v) { try { sessionStorage.setItem(k, v); } catch { /* ignore */ } }
 
 function ukToday() {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', year: 'numeric', month: 'numeric', day: 'numeric' })
@@ -25,28 +31,39 @@ function renderWriteUp(text) {
 }
 
 async function api(path) {
-  const res = await fetch('/api/' + path, { headers: { Accept: 'application/json' } });
+  const sep = path.includes('?') ? '&' : '?';
+  const res = await fetch('/api/' + path + (isAdmin && asVisitor ? sep + 'view=public' : ''), { headers: { Accept: 'application/json' } });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(body.error || ('Request failed (' + res.status + ')'));
   return body;
 }
 
-function releaseCard(r, { showDate = false } = {}) {
+// Cover, with CD1 / CD2 / CD3 buttons when a single came out on more than one CD
+function coverHtml(r) {
+  const imgs = (r.Images && r.Images.length ? r.Images : (r.CoverUrl ? [r.CoverUrl] : []));
+  if (!imgs.length) return '<div class="cover">No cover yet</div>';
+  const tabs = imgs.length > 1
+    ? `<div class="cdtabs">${imgs.map((u, i) => `<button type="button" class="cdtab${i ? '' : ' on'}" data-src="${esc(u)}">CD${i + 1}</button>`).join('')}</div>`
+    : '';
+  return `<div class="cover"><img src="${esc(imgs[0])}" alt="Cover of ${esc(r.Title)}" loading="lazy">${tabs}</div>`;
+}
+
+function releaseCard(r, { showDate = false, viewYear = null, isToday = false } = {}) {
   const chart = r.ChartPosition ? `UK No. ${r.ChartPosition}` : '';
   const when = showDate ? `${ordinal(r.ReleaseDay)} ${MONTHS[r.ReleaseMonth - 1]} ${r.ReleaseYear}` : r.ReleaseYear;
-  const cover = r.CoverUrl ? `<img src="${esc(r.CoverUrl)}" alt="Cover of ${esc(r.Title)}" loading="lazy">` : 'No cover yet';
-  return `<article class="card">
-    <div class="cover">${cover}</div>
+  const isNew = viewYear && r.ReleaseYear === viewYear;
+  const flag = isNew ? `<span class="newflag">${isToday ? 'NEW · Out today' : 'NEW'}</span>` : '';
+  const status = isAdmin && !asVisitor && r.Status
+    ? `<span class="badge s-${esc(r.Status)}">${esc(STATUS_LABEL[r.Status] || r.Status)}</span>` : '';
+  return `<article class="card${isNew ? ' isnew' : ''}">
+    ${coverHtml(r)}
     <div class="body">
-      <div class="year">${esc(when)}</div>
+      <div class="year">${esc(when)} ${flag}</div>
       <button class="artist" data-band="${r.BandId}">${esc(r.Artist)}</button>
       <div class="title">${esc(r.Title)}</div>
       <div class="meta">${esc([r.ReleaseType, chart, r.ChartNote, r.Label].filter(Boolean).join(' · '))}</div>
       ${r.WriteUp ? `<div class="writeup">${renderWriteUp(r.WriteUp)}</div>` : ''}
-      <div class="badges">
-        <span class="badge s-${esc(r.Status)}">${esc(STATUS_LABEL[r.Status] || r.Status)}</span>
-        ${r.Owned ? '<span class="badge">Owned</span>' : ''}
-      </div>
+      ${status ? `<div class="badges">${status}</div>` : ''}
     </div>
   </article>`;
 }
@@ -61,10 +78,15 @@ function gigCard(g) {
   </div>`;
 }
 
+function showOnly(id) {
+  for (const v of ['dayView', 'bandView', 'favView']) $(v).hidden = v !== id;
+  document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
+}
+
 async function showDay(date) {
   current = date;
   const m = date.getUTCMonth() + 1, d = date.getUTCDate();
-  $('bandView').hidden = true; $('dayView').hidden = false;
+  showOnly('dayView');
   $('dayTitle').textContent = `${ordinal(d)} ${MONTHS[m - 1]}`;
   $('datePick').value = date.toISOString().slice(0, 10);
   $('daySummary').textContent = 'Loading…';
@@ -74,9 +96,15 @@ async function showDay(date) {
     const data = await api(`onthisday?month=${m}&day=${d}`);
     handles = data.handles || {};
     const n = data.releases.length;
-    $('daySummary').textContent = n ? `${n} release${n === 1 ? '' : 's'} on this day` : '';
+    const today = ukToday();
+    const viewYear = today.getUTCFullYear();
+    const isToday = m === today.getUTCMonth() + 1 && d === today.getUTCDate();
+    const nNew = data.releases.filter(r => r.ReleaseYear === viewYear).length;
+    $('daySummary').textContent = n
+      ? `${n} release${n === 1 ? '' : 's'} on this day` + (nNew ? ` · ${nNew} new this year` : '')
+      : '';
     $('gigs').innerHTML = data.gigs.map(gigCard).join('');
-    $('releases').innerHTML = n ? data.releases.map(r => releaseCard(r)).join('')
+    $('releases').innerHTML = n ? data.releases.map(r => releaseCard(r, { viewYear, isToday })).join('')
       : '<p class="empty">Nothing recorded for this day yet.</p>';
   } catch (e) {
     $('daySummary').textContent = e.message;
@@ -84,7 +112,7 @@ async function showDay(date) {
 }
 
 async function showBand(id) {
-  $('dayView').hidden = true; $('bandView').hidden = false;
+  showOnly('bandView');
   $('bandName').textContent = 'Loading…'; $('bandReleases').innerHTML = ''; $('bandHandles').textContent = '';
   history.pushState(null, '', `/?band=${id}`);
   try {
@@ -94,10 +122,50 @@ async function showBand(id) {
     $('bandHandles').textContent = [band.XHandle && `X ${band.XHandle}`, band.InstagramHandle && `Instagram ${band.InstagramHandle}`,
       band.BlueskyHandle && `Bluesky ${band.BlueskyHandle}`, `${releases.length} release${releases.length === 1 ? '' : 's'}`]
       .filter(Boolean).join(' · ');
-    $('bandReleases').innerHTML = releases.map(r => releaseCard(r, { showDate: true })).join('');
+    $('bandReleases').innerHTML = releases.length
+      ? releases.map(r => releaseCard(r, { showDate: true })).join('')
+      : '<p class="empty">Nothing to show for this band yet.</p>';
   } catch (e) {
     $('bandName').textContent = e.message;
   }
+}
+
+// Favourite albums by year, plus what's coming up
+async function showFavourites(year) {
+  showOnly('favView');
+  history.replaceState(null, '', year ? `/?page=favourites&year=${year}` : '/?page=favourites');
+  $('favBody').innerHTML = '<p class="muted">Loading…</p>';
+  try {
+    const { years, upcoming } = await api('favourites');
+    const pick = years.find(y => String(y.year) === String(year)) || years.find(y => y.year === 2025) || years[0];
+    $('favYears').innerHTML = years.map(y =>
+      `<button type="button" class="yearbtn${y === pick ? ' on' : ''}" data-favyear="${y.year}">${y.year}${y.kind === 'upcoming' ? ' (upcoming)' : ''}</button>`).join('');
+    let html = `<h2>${esc(pick.title)}</h2>${pick.note ? `<p class="muted">${esc(pick.note)}</p>` : ''}`;
+    if (pick.kind === 'upcoming') {
+      const later = upcoming.filter(r => r.ReleaseYear >= pick.year);
+      html += later.length
+        ? `<div class="grid">${later.map(r => releaseCard(r, { showDate: true })).join('')}</div>`
+        : '<p class="empty">Nothing announced yet.</p>';
+    } else {
+      const list = (pick.albums || []);
+      html += list.length ? favList(list, pick.ranked) : '';
+      if (pick.extra) html += `<h3>${esc(pick.extra.heading)}</h3>` + favList(pick.extra.albums, false);
+      const soon = upcoming.filter(r => r.ReleaseYear === pick.year);
+      if (soon.length) html += `<h3>Still to come in ${pick.year}</h3><div class="grid">${soon.map(r => releaseCard(r, { showDate: true })).join('')}</div>`;
+    }
+    $('favBody').innerHTML = html;
+  } catch (e) {
+    $('favBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`;
+  }
+}
+function favList(list, ranked) {
+  return `<ol class="favs${ranked ? ' ranked' : ''}">${list.map(a => `<li class="fav">
+      ${a.cover ? `<img src="${esc(a.cover)}" alt="" loading="lazy">` : '<div class="nocover"></div>'}
+      <div>${ranked && a.rank ? `<span class="rank">${a.rank}</span>` : ''}
+        ${a.bandId ? `<button class="artist" data-band="${a.bandId}">${esc(a.artist)}</button>` : `<strong>${esc(a.artist)}</strong>`}
+        <div class="title">${esc(a.title)}</div>
+        ${a.note ? `<div class="meta">${esc(a.note)}</div>` : ''}</div>
+    </li>`).join('')}</ol>`;
 }
 
 // Search
@@ -118,6 +186,15 @@ $('searchBox').addEventListener('input', () => {
 });
 $('searchForm').addEventListener('submit', e => { e.preventDefault(); const b = $('searchResults').querySelector('button'); if (b) b.click(); });
 document.addEventListener('click', e => {
+  const tab = e.target.closest('.cdtab');
+  if (tab) {
+    const cover = tab.closest('.cover');
+    cover.querySelector('img').src = tab.dataset.src;
+    cover.querySelectorAll('.cdtab').forEach(t => t.classList.toggle('on', t === tab));
+    return;
+  }
+  const fy = e.target.closest('[data-favyear]');
+  if (fy) { showFavourites(fy.dataset.favyear); return; }
   const b = e.target.closest('[data-band]');
   if (b) { $('searchResults').hidden = true; $('searchBox').value = ''; showBand(b.dataset.band); return; }
   if (!e.target.closest('.search')) $('searchResults').hidden = true;
@@ -130,11 +207,31 @@ $('nextDay').onclick = () => showDay(addDays(current, 1));
 $('todayBtn').onclick = () => showDay(ukToday());
 $('datePick').onchange = () => { const v = $('datePick').value; if (v) showDay(new Date(v + 'T00:00:00Z')); };
 $('backBtn').onclick = () => showDay(current);
+$('navDay').onclick = e => { e.preventDefault(); showDay(current); };
+$('navFav').onclick = e => { e.preventDefault(); showFavourites(); };
 
-// Start: ?band=12 or ?date=11-21, otherwise today
-const params = new URLSearchParams(location.search);
-if (params.get('band')) showBand(params.get('band'));
-else if (/^\d{2}-\d{2}$/.test(params.get('date') || '')) {
-  const [mm, dd] = params.get('date').split('-').map(Number);
-  showDay(new Date(Date.UTC(ukToday().getUTCFullYear(), mm - 1, dd)));
-} else showDay(ukToday());
+// Admin bits in the header: link to the list page, and "view as visitor"
+function renderAdminBar() {
+  $('adminBar').hidden = !isAdmin;
+  $('signIn').hidden = isAdmin;
+  $('visitorToggle').textContent = asVisitor ? 'Viewing as visitor – switch back' : 'View as visitor';
+}
+$('visitorToggle').onclick = () => {
+  asVisitor = !asVisitor; sessionStorageSet('asVisitor', asVisitor ? '1' : '0'); renderAdminBar(); route();
+};
+
+function route() {
+  const p = new URLSearchParams(location.search);
+  if (p.get('band')) showBand(p.get('band'));
+  else if (p.get('page') === 'favourites') showFavourites(p.get('year'));
+  else if (/^\d{2}-\d{2}$/.test(p.get('date') || '')) {
+    const [mm, dd] = p.get('date').split('-').map(Number);
+    showDay(new Date(Date.UTC(ukToday().getUTCFullYear(), mm - 1, dd)));
+  } else showDay(ukToday());
+}
+
+(async () => {
+  try { isAdmin = !!(await (await fetch('/api/me')).json()).owner; } catch { isAdmin = false; }
+  renderAdminBar();
+  route();
+})();

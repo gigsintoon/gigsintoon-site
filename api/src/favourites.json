@@ -1,0 +1,364 @@
+{
+ "years": [
+  {
+   "year": 2027,
+   "title": "Coming in 2027",
+   "kind": "upcoming",
+   "note": "Releases already announced for next year."
+  },
+  {
+   "year": 2026,
+   "title": "Favourite albums of 2026",
+   "note": "My top albums of 2026 will go up at the end of the year.",
+   "albums": []
+  },
+  {
+   "year": 2025,
+   "title": "Top 20 albums of 2025",
+   "ranked": true,
+   "albums": [
+    {
+     "rank": 1,
+     "artist": "Turnstile",
+     "title": "Never Enough"
+    },
+    {
+     "rank": 2,
+     "artist": "Deaf Havana",
+     "title": "We're Never Getting Out"
+    },
+    {
+     "rank": 3,
+     "artist": "The Wildhearts",
+     "title": "Satanic Rites Of The Wildhearts"
+    },
+    {
+     "rank": 4,
+     "artist": "Yellowcard",
+     "title": "Better Days",
+     "note": "Superb album, really hear the Barker in the songwriting and production"
+    },
+    {
+     "rank": 5,
+     "artist": "Ash",
+     "title": "Ad Astra"
+    },
+    {
+     "rank": 6,
+     "artist": "The Lemonheads",
+     "title": "Love Chant"
+    },
+    {
+     "rank": 7,
+     "artist": "The Darkness",
+     "title": "Dreams On Toast"
+    },
+    {
+     "rank": 8,
+     "artist": "Sleep Token",
+     "title": "Even In Arcadia"
+    },
+    {
+     "rank": 9,
+     "artist": "Pulp",
+     "title": "More",
+     "note": "Fantastic return, especially love Got To Have Love, Tina & Spike Island!"
+    },
+    {
+     "rank": 10,
+     "artist": "Press Club",
+     "title": "To All The Ones That I Love"
+    },
+    {
+     "rank": 11,
+     "artist": "Motion City Soundtrack",
+     "title": "The Same Old Wasted Wonderful World"
+    },
+    {
+     "rank": 12,
+     "artist": "Manic Street Preachers",
+     "title": "Critical Thinking"
+    },
+    {
+     "rank": 13,
+     "artist": "Bite Me Bambi",
+     "title": "Eat This"
+    },
+    {
+     "rank": 14,
+     "artist": "Ben Kweller",
+     "title": "Cover The Mirrors"
+    },
+    {
+     "rank": 15,
+     "artist": "Badflower",
+     "title": "No Place Like Home"
+    },
+    {
+     "rank": 16,
+     "artist": "Creeper",
+     "title": "Sanguivore II: Mistress Of Death"
+    },
+    {
+     "rank": 17,
+     "artist": "Weakened Friends",
+     "title": "Feels Like Hell",
+     "note": "Wonderful cover of Torn"
+    },
+    {
+     "rank": 18,
+     "artist": "Templeton Pek",
+     "title": "Savages"
+    },
+    {
+     "rank": 19,
+     "artist": "Shandon",
+     "title": "Social Suicide"
+    },
+    {
+     "rank": 20,
+     "artist": "Mattstagraham",
+     "title": "Yellow Paint"
+    }
+   ],
+   "extra": {
+    "heading": "EP of the year",
+    "albums": [
+     {
+      "artist": "President",
+      "title": "King Of Terrors EP"
+     }
+    ]
+   }
+  },
+  {
+   "year": 2024,
+   "title": "Favourite albums of 2024",
+   "ranked": false,
+   "albums": [
+    {
+     "artist": "Linkin Park",
+     "title": "From Zero"
+    },
+    {
+     "artist": "CJ Wildheart",
+     "title": "SLOTS"
+    },
+    {
+     "artist": "Silver Sun",
+     "title": "Mild Peril"
+    },
+    {
+     "artist": "Poppy",
+     "title": "Negative Spaces"
+    },
+    {
+     "artist": "Kids In Glass Houses",
+     "title": "Pink Flamingo"
+    },
+    {
+     "artist": "The Offspring",
+     "title": "Supercharged"
+    },
+    {
+     "artist": "Dune Rats",
+     "title": "If It Sucks, Turn It Up"
+    },
+    {
+     "artist": "Terrorvision",
+     "title": "We Are Not Robots"
+    },
+    {
+     "artist": "Half Past Two",
+     "title": "Talk Is Killing Me"
+    },
+    {
+     "artist": "State Champs",
+     "title": "State Champs"
+    },
+    {
+     "artist": "Bring Me The Horizon",
+     "title": "POST HUMAN: NeX GEn"
+    },
+    {
+     "artist": "The LaFontaines",
+     "title": "Business As Usual"
+    },
+    {
+     "artist": "Shed Seven",
+     "title": "A Matter Of Time"
+    },
+    {
+     "artist": "Uzumaki",
+     "title": "Waded"
+    },
+    {
+     "artist": "Maximo Park",
+     "title": "Stream Of Life"
+    },
+    {
+     "artist": "Kill Lincoln",
+     "title": "No Normal"
+    },
+    {
+     "artist": "Trash Boat",
+     "title": "Heaven Can Wait"
+    },
+    {
+     "artist": "Real Friends",
+     "title": "Blue Hour"
+    },
+    {
+     "artist": "Amyl and The Sniffers",
+     "title": "Cartoon Darkness"
+    },
+    {
+     "artist": "Willie Dowling",
+     "title": "The Simpleton"
+    },
+    {
+     "artist": "Frank Turner",
+     "title": "Undefeated"
+    },
+    {
+     "artist": "Bilmuri",
+     "title": "AMERICAN MOTOR SPORTS"
+    },
+    {
+     "artist": "Sum 41",
+     "title": "Heaven :x: Hell"
+    },
+    {
+     "artist": "Green Day",
+     "title": "Saviors"
+    },
+    {
+     "artist": "Thieves Of Liberty",
+     "title": "Shangri-La"
+    }
+   ]
+  },
+  {
+   "year": 2023,
+   "title": "Favourite albums of 2023",
+   "ranked": true,
+   "albums": [
+    {
+     "rank": 1,
+     "artist": "Joe Mcalinden",
+     "title": "Where The Clouds Go Swimming"
+    },
+    {
+     "rank": 2,
+     "artist": "CJ Wildheart",
+     "title": "SPLIT"
+    },
+    {
+     "rank": 3,
+     "artist": "The Pink Spiders",
+     "title": "Freakazoid"
+    },
+    {
+     "rank": 4,
+     "artist": "The Dollyrots",
+     "title": "Night Owls"
+    },
+    {
+     "rank": 5,
+     "artist": "Pierce The Veil",
+     "title": "The Jaws of Life"
+    },
+    {
+     "rank": 6,
+     "artist": "You Me At Six",
+     "title": "Truth Decay"
+    },
+    {
+     "rank": 7,
+     "artist": "The Kynd",
+     "title": "Timelines"
+    },
+    {
+     "rank": 8,
+     "artist": "Waterparks",
+     "title": "Intellectual Property"
+    },
+    {
+     "rank": 9,
+     "artist": "The Sherlocks",
+     "title": "People Like Me & You"
+    },
+    {
+     "rank": 10,
+     "artist": "The Menzingers",
+     "title": "Some Of It Was True"
+    },
+    {
+     "rank": 11,
+     "artist": "Tearjerker",
+     "title": "Tearjerker"
+    },
+    {
+     "rank": 12,
+     "artist": "Sleep Token",
+     "title": "Take Me Back To Eden"
+    },
+    {
+     "rank": 13,
+     "artist": "Sincere Engineer",
+     "title": "Cheap Grills"
+    },
+    {
+     "rank": 14,
+     "artist": "Skindred",
+     "title": "Smile"
+    },
+    {
+     "rank": 15,
+     "artist": "Mustard Plug",
+     "title": "Where Did All My Friends Go"
+    },
+    {
+     "rank": 16,
+     "artist": "Hundred Reasons",
+     "title": "Glorious Sunset"
+    },
+    {
+     "rank": 17,
+     "artist": "Random Hand",
+     "title": "Random Hand"
+    },
+    {
+     "rank": 18,
+     "artist": "Dogstar",
+     "title": "Somewhere Between The Power Lines and Palm Trees"
+    },
+    {
+     "rank": 19,
+     "artist": "Creeper",
+     "title": "Sanguivore"
+    },
+    {
+     "rank": 20,
+     "artist": "Beartooth",
+     "title": "The Surface"
+    },
+    {
+     "rank": 21,
+     "artist": "Therapy?",
+     "title": "Hard Cold Fire"
+    },
+    {
+     "rank": 22,
+     "artist": "Spanish Love Songs",
+     "title": "No Joy"
+    },
+    {
+     "rank": 23,
+     "artist": "Ash",
+     "title": "Race The Night"
+    }
+   ]
+  }
+ ]
+}

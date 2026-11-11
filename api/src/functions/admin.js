@@ -2,18 +2,7 @@ const { app } = require('@azure/functions');
 const { BlobServiceClient } = require('@azure/storage-blob');
 const { sql, query, json } = require('../db');
 
-// Only signed-in users with the "owner" role may use admin functions.
-// (staticwebapp.config.json already enforces this; this is a second check.)
-function isOwner(request) {
-  const header = request.headers.get('x-ms-client-principal');
-  if (!header) return false;
-  try {
-    const principal = JSON.parse(Buffer.from(header, 'base64').toString('utf8'));
-    return (principal.userRoles || []).includes('owner');
-  } catch {
-    return false;
-  }
-}
+const { isOwner } = require('../auth');
 
 function mediaBaseUrl() {
   const cs = process.env.STORAGE_CONNECTION_STRING || '';
@@ -129,6 +118,8 @@ async function runImport(rows, base) {
     payload: [sql.NVarChar(sql.MAX), JSON.stringify(rows)],
     base: [sql.NVarChar(400), base]
   });
+  // Colours changed on the admin page win over the spreadsheet until they've been copied back into it
+  result[0].StatusOverridesKept = await applyStatusOverrides();
   return result[0];
 }
 
@@ -394,6 +385,133 @@ app.http('adminReleaseImages', {
         SELECT (SELECT COUNT(*) FROM OPENJSON(@p)) AS Sent, (SELECT COUNT(*) FROM @x) AS Linked;`,
         { p: [sql.NVarChar(sql.MAX), JSON.stringify(rows)] });
       return json({ ok: true, ...res[0] });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Admin list page: releases by month, with the spreadsheet colours, and changing a colour.
+//
+// Colour   Status                     (as in the spreadsheet)
+// none     NotPosted
+// orange   Drafted (or Posted, not on the Sonos playlist yet)
+// green    Posted + on the Sonos playlist
+// red      DoNotPost
+//
+// A change made here is saved straight away and also remembered in import/status-overrides.json, so a later
+// re-import from the spreadsheet doesn't undo it. Once the change has been copied into the spreadsheet the
+// override can be cleared (DELETE /api/manage/status-overrides).
+
+const COLOURS = {
+  none: { status: 'NotPosted', sonos: false },
+  orange: { status: 'Drafted', sonos: false },
+  green: { status: 'Posted', sonos: true },
+  red: { status: 'DoNotPost', sonos: false }
+};
+
+function importContainer() {
+  return BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING).getContainerClient('import');
+}
+const OVERRIDES = 'status-overrides.json';
+
+async function readOverrides() {
+  const blob = importContainer().getBlockBlobClient(OVERRIDES);
+  if (!(await blob.exists())) return {};
+  return JSON.parse((await blob.downloadToBuffer()).toString('utf8') || '{}');
+}
+async function writeOverrides(o) {
+  const text = JSON.stringify(o, null, 1);
+  await importContainer().getBlockBlobClient(OVERRIDES)
+    .upload(text, Buffer.byteLength(text), { blobHTTPHeaders: { blobContentType: 'application/json' } });
+}
+
+async function applyStatusOverrides() {
+  const o = await readOverrides();
+  const list = Object.values(o);
+  if (!list.length) return 0;
+  await query(
+    `UPDATE r SET Status = j.status, OnSonosPlaylist = j.sonos, UpdatedAt = SYSUTCDATETIME()
+       FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+       JOIN OPENJSON(@p) WITH (band NVARCHAR(200), title NVARCHAR(400), date DATE, status NVARCHAR(20), sonos BIT) j
+         ON j.band = b.Name AND j.title = r.Title AND j.date = r.ReleaseDate`,
+    { p: [sql.NVarChar(sql.MAX), JSON.stringify(list)] });
+  return list.length;
+}
+
+// GET /api/manage/month?m=6 -> every release in that month (all statuses)
+app.http('adminMonth', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'manage/month',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    const m = parseInt(request.query.get('m'), 10);
+    if (!(m >= 1 && m <= 12)) return json({ error: 'Give ?m=1..12' }, 400);
+    try {
+      const rows = await query(
+        `SELECT r.ReleaseId, r.ReleaseDay, r.ReleaseYear, b.Name AS Band, r.Title, r.ReleaseType,
+                r.ChartPosition, r.ChartNote, r.TagNotes, r.Status, r.OnSonosPlaylist AS OnSonos,
+                CASE WHEN r.WriteUp IS NULL OR r.WriteUp = '' THEN 0 ELSE 1 END AS HasWriteUp,
+                (SELECT COUNT(*) FROM music.Images i WHERE i.ReleaseId = r.ReleaseId) AS ImageCount
+           FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+          WHERE r.ReleaseMonth = @m
+          ORDER BY r.ReleaseDay, r.ReleaseYear, b.Name`, { m: [sql.Int, m] });
+      const o = await readOverrides();
+      rows.forEach(r => { r.Changed = !!o[r.ReleaseId]; });
+      return json({ month: m, rows });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// POST /api/manage/status  { "id": 123, "colour": "orange" | "green" | "none" | "red" }
+app.http('adminStatus', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/status',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const { id, colour } = await request.json();
+      const c = COLOURS[colour];
+      if (!c || !Number.isInteger(id)) return json({ ok: false, error: 'Give id and colour (none, orange, green, red).' }, 400);
+      const rows = await query(
+        `UPDATE r SET Status = @s, OnSonosPlaylist = @sonos, UpdatedAt = SYSUTCDATETIME()
+           OUTPUT inserted.ReleaseId, inserted.Title, CONVERT(char(10), inserted.ReleaseDate, 23) AS ReleaseDate, inserted.Status
+           FROM music.Releases r WHERE r.ReleaseId = @id`,
+        { s: [sql.NVarChar(20), c.status], sonos: [sql.Bit, c.sonos], id: [sql.Int, id] });
+      if (!rows.length) return json({ ok: false, error: 'Release not found.' }, 404);
+      const band = (await query(`SELECT b.Name FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE r.ReleaseId = @id`,
+        { id: [sql.Int, id] }))[0].Name;
+      const o = await readOverrides();
+      o[id] = { id, band, title: rows[0].Title, date: rows[0].ReleaseDate, colour, status: c.status, sonos: c.sonos,
+                at: new Date().toISOString() };
+      await writeOverrides(o);
+      return json({ ok: true, id, colour, status: c.status });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// GET /api/manage/status-overrides -> colour changes made on the site that aren't in the spreadsheet yet
+// DELETE /api/manage/status-overrides?ids=1,2,3 (or no ids = all) -> forget them once the spreadsheet matches
+app.http('adminStatusOverrides', {
+  methods: ['GET', 'DELETE'],
+  authLevel: 'anonymous',
+  route: 'manage/status-overrides',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const o = await readOverrides();
+      if (request.method === 'GET') return json({ overrides: Object.values(o) });
+      const ids = (request.query.get('ids') || '').split(',').filter(Boolean);
+      if (ids.length) ids.forEach(i => delete o[i]); else for (const k of Object.keys(o)) delete o[k];
+      await writeOverrides(o);
+      return json({ ok: true, remaining: Object.keys(o).length });
     } catch (err) {
       return failDetail(context, err);
     }

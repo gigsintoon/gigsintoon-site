@@ -3,13 +3,16 @@
     { "route": "/.auth/*", "allowedRoles": ["anonymous", "authenticated"] },
     { "route": "/login", "redirect": "/.auth/login/aad?post_login_redirect_uri=/" },
     { "route": "/logout", "redirect": "/.auth/logout?post_logout_redirect_uri=/" },
+    { "route": "/admin", "rewrite": "/admin.html", "allowedRoles": ["owner"] },
+    { "route": "/admin.*", "allowedRoles": ["owner"] },
+    { "route": "/api/manage/*", "allowedRoles": ["owner"] },
     { "route": "/*", "allowedRoles": ["owner"] }
   ],
   "responseOverrides": {
     "401": { "redirect": "/.auth/login/aad?post_login_redirect_uri=.referrer", "statusCode": 302 },
     "403": { "rewrite": "/403.html" }
   },
-  "navigationFallback": { "rewrite": "/index.html", "exclude": ["/api/*", "/*.{css,js,png,jpg,svg,ico}"] },
+  "navigationFallback": { "rewrite": "/index.html", "exclude": ["/api/*", "/*.{css,js,png,jpg,svg,ico,json}"] },
   "platform": { "apiRuntime": "node:20" },
   "globalHeaders": {
     "X-Content-Type-Options": "nosniff",

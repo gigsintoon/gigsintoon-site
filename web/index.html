@@ -10,11 +10,23 @@
   <header class="top">
     <div class="wrap bar">
       <a class="brand" href="/">Gigs in <span>toon</span></a>
+      <nav class="nav">
+        <a id="navDay" data-nav="dayView" href="/">On this day</a>
+        <a id="navFav" data-nav="favView" href="/?page=favourites">Favourites</a>
+      </nav>
       <form id="searchForm" class="search" role="search">
         <input id="searchBox" type="search" placeholder="Search bands…" autocomplete="off" aria-label="Search bands">
         <div id="searchResults" class="results" hidden></div>
       </form>
-      <a class="signout" href="/logout">Sign out</a>
+      <a id="signIn" class="signout" href="/login" hidden>Sign in</a>
+    </div>
+    <div id="adminBar" class="adminbar" hidden>
+      <div class="wrap">
+        <span>Admin</span>
+        <a href="/admin">Release list</a>
+        <button id="visitorToggle" type="button" class="ghost"></button>
+        <a class="signout" href="/logout">Sign out</a>
+      </div>
     </div>
   </header>
 
@@ -37,6 +49,12 @@
       <h1 id="bandName"></h1>
       <p id="bandHandles" class="muted"></p>
       <div id="bandReleases" class="grid"></div>
+    </section>
+
+    <section id="favView" hidden>
+      <h1>Favourite albums</h1>
+      <div id="favYears" class="years"></div>
+      <div id="favBody"></div>
     </section>
   </main>
 

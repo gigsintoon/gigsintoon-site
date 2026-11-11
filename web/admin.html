@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Release list – Gigs in toon</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap bar">
+      <a class="brand" href="/">Gigs in <span>toon</span></a>
+      <nav class="nav"><a href="/">On this day</a><a class="on" href="/admin">Release list</a></nav>
+      <a class="signout" href="/logout" style="margin-left:auto">Sign out</a>
+    </div>
+  </header>
+  <main class="wrap">
+    <div class="listhead">
+      <h1>Release list</h1>
+      <div id="months" class="years"></div>
+    </div>
+    <p class="muted help">Click a row to change its colour: none → <b class="k-orange">orange</b> → <b class="k-green">green</b> → none.
+      Use the <b class="k-red">red</b> button for do-not-post. Changes save straight away.
+      <span id="pending"></span></p>
+    <div class="filters">
+      <label><input type="checkbox" id="fMissing"> Only missing cover or write-up</label>
+      <label><input type="checkbox" id="fHideRed"> Hide red</label>
+      <input id="fText" type="search" placeholder="Filter…">
+      <span id="counts" class="muted"></span>
+    </div>
+    <table class="rel">
+      <thead><tr><th>Day</th><th>Band</th><th>Title</th><th>Year</th><th>Chart</th><th>Notes</th><th title="Cover / write-up">Has</th><th></th></tr></thead>
+      <tbody id="rows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
+    </table>
+  </main>
+  <script src="/admin.js"></script>
+</body>
+</html>
