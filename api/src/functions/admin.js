@@ -82,11 +82,11 @@ SELECT (SELECT COUNT(*) FROM @rows) AS RowsInFile,
        (SELECT COUNT(*) FROM music.Bands) AS BandsTotal,
        (SELECT COUNT(*) FROM music.Releases) AS ReleasesTotal;`;
 
-// POST or GET /api/admin/import?file=releases-11.json
+// POST or GET /api/manage/import ("admin" is reserved by Azure Functions)?file=releases-11.json
 app.http('adminImport', {
   methods: ['GET', 'POST'],
   authLevel: 'anonymous',
-  route: 'admin/import',
+  route: 'manage/import',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
     const file = request.query.get('file') || '';
