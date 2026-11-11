@@ -108,7 +108,15 @@ app.http('adminImport', {
     const base = mediaBaseUrl();
     if (!base) return json({ error: 'STORAGE_CONNECTION_STRING is not set.' }, 500);
     try {
-      const rows = await readImportFile(file);
+      // ?url= lets a month file be supplied from this site's own GitHub repository instead of the import container
+      const src = request.query.get('url');
+      let rows;
+      if (src) {
+        if (!src.startsWith('https://raw.githubusercontent.com/gigsintoon/gigsintoon-site/')) return json({ ok: false, error: 'url not allowed' }, 400);
+        const r = await fetch(src);
+        if (!r.ok) return json({ ok: false, error: 'Could not fetch ' + src + ' (' + r.status + ')' }, 400);
+        rows = JSON.parse((await r.text()).replace(/^\uFEFF/, ''));
+      } else rows = await readImportFile(file);
       return json({ ok: true, file, ...(await runImport(rows, base)) });
     } catch (err) {
       return failDetail(context, err);
