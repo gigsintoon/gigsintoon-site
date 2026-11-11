@@ -217,6 +217,12 @@ def build_month(root, wb, mi):
                 need = 'txt' if not e['txt'] else 'images'
                 spare = [k for k, v in files_by_day[day].items() if k not in used_by_day[day] and v[need]]
                 twin, ts = best_match(band_s, title_s, spare, set(), {k: files_by_day[day][k]['name'] for k in spare})
+                # also compare whole file names: "Skunk Anansie - Weak" vs "Skunk Anansie Weak CD1"
+                me = norm(files_by_day[day][stem]['name'])
+                for k in spare:
+                    r_ = difflib.SequenceMatcher(None, me, norm(files_by_day[day][k]['name'])).ratio()
+                    if r_ >= 0.8 and r_ > ts:
+                        twin, ts = k, r_
                 if twin and ts >= 0.6:
                     used_by_day[day].add(twin)
                     e[need] = files_by_day[day][twin][need]

@@ -354,3 +354,40 @@ app.http('adminReleaseDelete', {
     }
   }
 });
+
+// POST /api/manage/release-images  body: [{ band, title, date, images: [{ kind, path, order }] }]
+// Links images to releases that already exist, without touching any other release details.
+app.http('adminReleaseImages', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/release-images',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const body = await request.json();
+      const rows = [];
+      for (const r of (Array.isArray(body) ? body : [body])) {
+        (r.images || []).forEach((img, i) => {
+          const path = cleanPath(img.path);
+          if (path) rows.push({ band: r.band, title: r.title, date: r.date, kind: img.kind || 'Cover', path,
+            url: mediaBaseUrl() + path.split('/').map(encodeURIComponent).join('/'), order: img.order || i + 1 });
+        });
+      }
+      const res = await query(`SET NOCOUNT ON;
+        DECLARE @x TABLE (ReleaseId INT, Kind NVARCHAR(20), Path NVARCHAR(400), Url NVARCHAR(600), SortOrder INT, Alt NVARCHAR(300));
+        INSERT INTO @x
+        SELECT r.ReleaseId, j.kind, j.path, j.url, j.ord, CONCAT(j.kind, ' cover of ', r.Title, ' by ', COALESCE(r.ArtistDisplay, b.Name))
+          FROM OPENJSON(@p) WITH (band NVARCHAR(200), title NVARCHAR(400), date DATE, kind NVARCHAR(20), path NVARCHAR(400), url NVARCHAR(600), ord INT '$.order') j
+          JOIN music.Bands b ON b.Name = j.band
+          JOIN music.Releases r ON r.BandId = b.BandId AND r.Title = j.title AND r.ReleaseDate = j.date;
+        MERGE music.Images AS t USING @x AS s ON t.ReleaseId = s.ReleaseId AND t.BlobPath = s.Path
+        WHEN MATCHED THEN UPDATE SET Kind = s.Kind, PublicUrl = s.Url, SortOrder = s.SortOrder, AltText = s.Alt
+        WHEN NOT MATCHED THEN INSERT (ReleaseId, Kind, BlobPath, PublicUrl, AltText, SortOrder) VALUES (s.ReleaseId, s.Kind, s.Path, s.Url, s.Alt, s.SortOrder);
+        SELECT (SELECT COUNT(*) FROM OPENJSON(@p)) AS Sent, (SELECT COUNT(*) FROM @x) AS Linked;`,
+        { p: [sql.NVarChar(sql.MAX), JSON.stringify(rows)] });
+      return json({ ok: true, ...res[0] });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
