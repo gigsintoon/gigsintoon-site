@@ -27,8 +27,12 @@ const RELEASE_COLUMNS = `
   (SELECT i.PublicUrl AS u FROM music.Images i
      WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId FOR JSON PATH) AS ImagesJson`;
 
-// Visitors only see releases that have been posted
-const VISIBLE = `r.Status = 'Posted'`;
+// Visitors only see releases that have been posted. An orange (drafted/scheduled) one counts as posted
+// once its day has come round this year, the same rule the spreadsheet import uses.
+const UK_TODAY = `CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)`;
+const VISIBLE = `(r.Status = 'Posted' OR (r.Status = 'Drafted'
+  AND (r.ReleaseMonth < MONTH(${UK_TODAY}) OR (r.ReleaseMonth = MONTH(${UK_TODAY}) AND r.ReleaseDay <= DAY(${UK_TODAY})))
+  AND r.ReleaseDate <= ${UK_TODAY}))`;
 
 function tidy(rows, all) {
   return rows.map(r => {
@@ -183,7 +187,7 @@ app.http('favourites', {
       const upcoming = tidy(await query(
         `SELECT ${RELEASE_COLUMNS}
            FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
-          WHERE r.ReleaseDate > CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)
+          WHERE r.ReleaseDate > ${UK_TODAY}
             AND r.Status <> 'DoNotPost'
           ORDER BY r.ReleaseDate`), isOwner(request));
       // upcoming write-ups are usually still drafts, so visitors only get the basics
