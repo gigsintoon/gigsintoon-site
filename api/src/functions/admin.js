@@ -67,14 +67,19 @@ WHEN NOT MATCHED THEN INSERT
           s.Label, s.WriteUp, s.TagNotes, s.Status, s.OnSonos)
 OUTPUT s.RowNo, inserted.ReleaseId INTO @map;
 
-DELETE i FROM music.Images i JOIN @map m ON m.ReleaseId = i.ReleaseId;
-
-INSERT INTO music.Images (ReleaseId, Kind, BlobPath, PublicUrl, AltText, SortOrder)
-SELECT m.ReleaseId, img.Kind, img.Path, @base + img.UrlPath,
-       CONCAT(img.Kind, ' cover of ', r.Title, ' by ', COALESCE(r.ArtistDisplay, r.Band)), img.SortOrder
-FROM @rows r JOIN @map m ON m.RowNo = r.RowNo
-CROSS APPLY OPENJSON(r.Images) WITH (Kind NVARCHAR(20) '$.kind', Path NVARCHAR(400) '$.path',
-  UrlPath NVARCHAR(600) '$.urlPath', SortOrder INT '$.order') img;
+-- (the web login has no DELETE permission, so images are upserted rather than replaced)
+MERGE music.Images AS t
+USING (
+  SELECT m.ReleaseId, img.Kind, img.Path, @base + img.UrlPath AS PublicUrl,
+         CONCAT(img.Kind, ' cover of ', r.Title, ' by ', COALESCE(r.ArtistDisplay, r.Band)) AS AltText, img.SortOrder
+  FROM @rows r JOIN @map m ON m.RowNo = r.RowNo
+  CROSS APPLY OPENJSON(r.Images) WITH (Kind NVARCHAR(20) '$.kind', Path NVARCHAR(400) '$.path',
+    UrlPath NVARCHAR(600) '$.urlPath', SortOrder INT '$.order') img
+) AS s
+ON t.ReleaseId = s.ReleaseId AND t.BlobPath = s.Path
+WHEN MATCHED THEN UPDATE SET Kind = s.Kind, PublicUrl = s.PublicUrl, AltText = s.AltText, SortOrder = s.SortOrder
+WHEN NOT MATCHED THEN INSERT (ReleaseId, Kind, BlobPath, PublicUrl, AltText, SortOrder)
+  VALUES (s.ReleaseId, s.Kind, s.Path, s.PublicUrl, s.AltText, s.SortOrder);
 
 SELECT (SELECT COUNT(*) FROM @rows) AS RowsInFile,
        (SELECT COUNT(*) FROM @map) AS ReleasesSaved,
@@ -102,7 +107,10 @@ app.http('adminImport', {
       return json({ ok: true, file, ...result[0] });
     } catch (err) {
       context.error(err);
-      return json({ ok: false, error: err.message }, 500);
+      const details = [err.name, err.code, err.statusCode, err.message,
+        ...(err.precedingErrors || []).map(e => e.message),
+        err.originalError && err.originalError.message].filter(Boolean);
+      return json({ ok: false, error: details.join(' | ') || String(err) }, 500);
     }
   }
 });
