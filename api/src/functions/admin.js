@@ -109,17 +109,151 @@ app.http('adminImport', {
     if (!base) return json({ error: 'STORAGE_CONNECTION_STRING is not set.' }, 500);
     try {
       const rows = await readImportFile(file);
-      const result = await query(IMPORT_SQL, {
-        payload: [sql.NVarChar(sql.MAX), JSON.stringify(rows)],
-        base: [sql.NVarChar(400), base]
-      });
-      return json({ ok: true, file, ...result[0] });
+      return json({ ok: true, file, ...(await runImport(rows, base)) });
     } catch (err) {
-      context.error(err);
-      const details = [err.name, err.code, err.statusCode, err.message,
-        ...(err.precedingErrors || []).map(e => e.message),
-        err.originalError && err.originalError.message].filter(Boolean);
-      return json({ ok: false, error: details.join(' | ') || String(err) }, 500);
+      return failDetail(context, err);
+    }
+  }
+});
+
+async function runImport(rows, base) {
+  const result = await query(IMPORT_SQL, {
+    payload: [sql.NVarChar(sql.MAX), JSON.stringify(rows)],
+    base: [sql.NVarChar(400), base]
+  });
+  return result[0];
+}
+
+function failDetail(context, err) {
+  context.error(err);
+  const details = [err.name, err.code, err.statusCode, err.message,
+    ...(err.precedingErrors || []).map(e => e.message),
+    err.originalError && err.originalError.message].filter(Boolean);
+  return json({ ok: false, error: details.join(' | ') || String(err) }, 500);
+}
+
+function mediaContainer() {
+  return BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING).getContainerClient('media');
+}
+
+// Blob paths look like the folder on the laptop: "11 - November/11th/Band - Title.jpg"
+function cleanPath(p) {
+  const s = String(p || '').replace(/\\/g, '/').replace(/^\/+/, '');
+  if (!s || s.includes('..') || s.length > 400) return null;
+  return s;
+}
+
+const CONTENT_TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', jfif: 'image/jpeg', png: 'image/png',
+  webp: 'image/webp', gif: 'image/gif' };
+
+// POST /api/manage/release  body: one release (same shape as a row in releases-MM.json) or an array of them.
+// Adds the release, or updates it if band + title + date already exist; links any images listed.
+app.http('adminRelease', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/release',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const body = await request.json();
+      const rows = Array.isArray(body) ? body : [body];
+      for (const r of rows) {
+        if (!r.band || !r.title || !/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) {
+          return json({ ok: false, error: 'Each release needs band, title and date (YYYY-MM-DD).' }, 400);
+        }
+        r.type = r.type || 'Album'; r.status = r.status || 'NotPosted'; r.onSonos = !!r.onSonos;
+        r.images = (r.images || []).map((img, i) => {
+          const path = cleanPath(img.path);
+          return { kind: img.kind || 'Cover', path, urlPath: path.split('/').map(encodeURIComponent).join('/'), order: img.order || i + 1 };
+        });
+      }
+      const result = await runImport(rows, mediaBaseUrl());
+      const saved = await query(
+        `SELECT r.ReleaseId, b.Name AS Band, r.Title, r.ReleaseDate, r.Status,
+                (SELECT i.Kind, i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId
+                  ORDER BY i.SortOrder FOR JSON PATH) AS Images
+           FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+          WHERE EXISTS (SELECT 1 FROM OPENJSON(@p) WITH (band NVARCHAR(200), title NVARCHAR(400), date DATE) j
+                         WHERE j.band = b.Name AND j.title = r.Title AND j.date = r.ReleaseDate)`,
+        { p: [sql.NVarChar(sql.MAX), JSON.stringify(rows)] });
+      saved.forEach(x => { x.Images = x.Images ? JSON.parse(x.Images) : []; });
+      return json({ ok: true, ...result, saved });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// POST /api/manage/upload?path=11 - November/11th/Band - Title.jpg   body: the image bytes
+// Saves the image into the media container and returns its permanent public URL.
+app.http('adminUpload', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/upload',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    const path = cleanPath(request.query.get('path'));
+    const ext = (path || '').split('.').pop().toLowerCase();
+    if (!path || !CONTENT_TYPES[ext]) return json({ ok: false, error: 'Give ?path= ending in .jpg, .jpeg, .png, .webp, .gif or .jfif' }, 400);
+    try {
+      const buf = Buffer.from(await request.arrayBuffer());
+      if (!buf.length) return json({ ok: false, error: 'The upload was empty.' }, 400);
+      await mediaContainer().getBlockBlobClient(path).uploadData(buf, { blobHTTPHeaders: { blobContentType: CONTENT_TYPES[ext] } });
+      return json({ ok: true, path, bytes: buf.length, url: mediaBaseUrl() + path.split('/').map(encodeURIComponent).join('/') });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// POST /api/manage/media-delete  body: { "paths": [...], "confirm": true }
+// Deletes exactly the listed images from the media container. Without "confirm": true it only reports what it would do.
+app.http('adminMediaDelete', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/media-delete',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const body = await request.json();
+      const paths = (body.paths || []).map(cleanPath).filter(Boolean);
+      const inUse = new Set((await query(`SELECT BlobPath FROM music.Images`)).map(r => r.BlobPath));
+      const c = mediaContainer();
+      const result = { deleted: [], wouldDelete: [], notFound: [], keptInUse: [] };
+      for (const p of paths) {
+        if (inUse.has(p)) { result.keptInUse.push(p); continue; }
+        const blob = c.getBlobClient(p);
+        if (!(await blob.exists())) { result.notFound.push(p); continue; }
+        if (body.confirm === true) { await blob.delete(); result.deleted.push(p); } else result.wouldDelete.push(p);
+      }
+      return json({ ok: true, confirm: body.confirm === true, counts: Object.fromEntries(Object.entries(result).map(([k, v]) => [k, v.length])), ...result });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// POST /api/manage/reset-releases  body: { "confirm": "DELETE ALL RELEASES" }
+// Clears releases, their images (database rows only - files in storage are kept) and bands not on a gig bill.
+app.http('adminResetReleases', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/reset-releases',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const body = await request.json().catch(() => ({}));
+      if (body.confirm !== 'DELETE ALL RELEASES') return json({ ok: false, error: 'Send { "confirm": "DELETE ALL RELEASES" }' }, 400);
+      const r = await query(`SET NOCOUNT ON;
+        DELETE FROM music.Images WHERE ReleaseId IS NOT NULL;
+        DELETE FROM music.SocialPosts WHERE ReleaseId IS NOT NULL;
+        DELETE FROM music.Releases;
+        DELETE FROM music.Bands WHERE BandId NOT IN (SELECT BandId FROM music.GigBands);
+        SELECT (SELECT COUNT(*) FROM music.Bands) AS Bands, (SELECT COUNT(*) FROM music.Releases) AS Releases,
+               (SELECT COUNT(*) FROM music.Images) AS Images;`);
+      return json({ ok: true, ...r[0] });
+    } catch (err) {
+      return failDetail(context, err);
     }
   }
 });
