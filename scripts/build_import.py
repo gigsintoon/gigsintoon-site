@@ -88,7 +88,7 @@ def day_files(folder):
         p = os.path.join(folder, f)
         stem, ext = os.path.splitext(f)
         ext = ext.lower()
-        if f.lower() == 'desktop.ini' or stem.upper().startswith('GIG'):
+        if f.lower() == 'desktop.ini' or re.match(r'^GIG\s*-', stem, re.I):
             continue
         kind = 'Cover'
         m = re.search(r'\s*(CD\s?([123]))$', stem, re.I)
@@ -145,7 +145,12 @@ def best_match(band, title, candidates, used, e_names=None):
         score = ts * 0.65 + as_ * 0.35
         if score > best_score:
             best, best_score = stem, score
-    return (best, best_score) if best_score >= 0.72 else (None, best_score)
+    return best, best_score
+
+
+def good_match(*a, **k):
+    best, score = best_match(*a, **k)
+    return (best, score) if score >= 0.72 else (None, score)
 
 
 def read_txt(p):
@@ -200,12 +205,23 @@ def build_month(root, wb, mi):
         if day not in files_by_day:
             files_by_day[day] = day_files(dfolder)
             used_by_day[day] = set()
-        stem, score = best_match(band_s, title_s, list(files_by_day[day]), used_by_day[day],
+        stem, score = good_match(band_s, title_s, list(files_by_day[day]), used_by_day[day],
                                  {k: v['name'] for k, v in files_by_day[day].items()})
         write_up, images = None, []
         if stem:
             used_by_day[day].add(stem)
-            e = files_by_day[day][stem]
+            e = dict(files_by_day[day][stem]); e['images'] = list(e['images'])
+            # The cover and the .txt are sometimes spelt slightly differently ("Thiss Is Music",
+            # "Gigilo Aunts") - if one half is missing, take it from the closest unused file that day.
+            if not e['txt'] or not e['images']:
+                need = 'txt' if not e['txt'] else 'images'
+                spare = [k for k, v in files_by_day[day].items() if k not in used_by_day[day] and v[need]]
+                twin, ts = best_match(band_s, title_s, spare, set(), {k: files_by_day[day][k]['name'] for k in spare})
+                if twin and ts >= 0.6:
+                    used_by_day[day].add(twin)
+                    e[need] = files_by_day[day][twin][need]
+                    if need == 'images':
+                        e['images'] = list(e['images'])
             if e['txt']:
                 write_up = read_txt(e['txt'])
             order = {'Cover': 0, 'CD1': 1, 'CD2': 2, 'CD3': 3}
