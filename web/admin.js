@@ -61,7 +61,7 @@ function render() {
       <td>${esc(chart)}</td>
       <td class="notes">${esc(r.TagNotes || '')}</td>
       <td class="has">${r.ImageCount ? '🖼' : '<span class="miss" title="No cover">✕</span>'} ${r.HasWriteUp ? '✎' : '<span class="miss" title="No write-up">✕</span>'}</td>
-      <td><button type="button" class="redbtn" data-red="${r.ReleaseId}" title="${c === 'red' ? 'Clear red' : 'Mark do not post'}">${c === 'red' ? 'unred' : 'red'}</button></td>
+      <td><button type="button" class="redbtn" data-red="${r.ReleaseId}" title="${c === 'red' ? 'Take off do-not-post' : 'Mark as do not post (red)'}">${c === 'red' ? 'Undo' : "Don't post"}</button></td>
     </tr>`;
   }).join('') || '<tr><td colspan="8" class="muted">Nothing to show.</td></tr>';
 }
