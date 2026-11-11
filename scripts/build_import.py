@@ -3,7 +3,7 @@
 Usage:  python3 build_import.py "<Gigs in toon folder>" <month numbers...>
         e.g. python3 build_import.py ~/mnt/"Gigs in toon" 11
 
-Writes <folder>/_import/releases-MM.json and _import/report-MM.txt (unmatched files/rows).
+Writes <folder>/_import/upload/releases-MM-1.json and -2.json (1st-15th, 16th-end) and _import/report-MM.txt (unmatched files/rows).
 Images are referenced by their path inside the folder, which is also their path in the
 "media" blob container once the month folders are uploaded.
 """
@@ -59,17 +59,22 @@ def parse_chart(v):
 
 
 def release_type(title, write_up):
-    t = f"{title} {write_up or ''}".lower()
-    if re.search(r'\bep\b', str(title).lower()) or ' the ep ' in t or 'released the ep' in t or 'their ep' in t:
+    """Decide from the title and the first paragraph of the write-up (later paragraphs often
+    mention the album a single came from, so they're ignored)."""
+    ti = str(title).lower()
+    first = (write_up or '').strip().split('\n\n')[0].lower()
+    if re.search(r'\bep\b', ti) or re.search(r'\bep\b', first):
         return 'EP'
-    if 'live album' in t or re.search(r'\blive\b', str(title).lower()):
-        return 'Live'
-    if any(k in t for k in ('compilation', 'greatest hits', 'best of', 'singles collection', 'b-sides', 'b sides')):
-        return 'Compilation'
-    if re.search(r'released (the|their|his|her) (lead |first |second |third |fourth |fifth |final |new |debut )*single', t) \
-            or re.search(r'\bsingle\b', str(title).lower()):
+    if re.search(r'\bsingle\b', ti) or re.search(r'\bsingles?\b', first) and not re.search(r'singles (collection|compilation)|the singles\b', first):
         return 'Single'
-    if 'album' in t:
+    if 'live album' in first:
+        return 'Live'
+    if any(k in first for k in ('compilation', 'greatest hit', 'best of', 'singles collection', 'b-sides', 'b sides', 'rarities')) \
+            or any(k in ti for k in ('greatest hits', 'best of', 'anthology', 'rarities', 'b-sides')):
+        return 'Compilation'
+    if re.search(r'\blive\b', ti):
+        return 'Live'
+    if 'album' in first or 'record' in first:
         return 'Album'
     return 'Other'
 
@@ -232,10 +237,15 @@ def main():
     wb = openpyxl.load_workbook(os.path.join(root, 'MUSIC RELEASESv7.xlsx'))
     out = os.path.join(root, '_import')
     os.makedirs(out, exist_ok=True)
+    up = os.path.join(out, 'upload')
+    os.makedirs(up, exist_ok=True)
     for mi in months:
         rows, report = build_month(root, wb, mi)
-        with open(os.path.join(out, f'releases-{mi:02d}.json'), 'w', encoding='utf-8') as fh:
-            json.dump(rows, fh, ensure_ascii=False, indent=1)
+        # Two files per month (1st-15th, 16th-end) so each import finishes inside the web timeout
+        for part, keep in ((1, lambda d: d <= 15), (2, lambda d: d > 15)):
+            chunk = [r for r in rows if keep(int(r['date'][8:10]))]
+            with open(os.path.join(up, f'releases-{mi:02d}-{part}.json'), 'w', encoding='utf-8') as fh:
+                json.dump(chunk, fh, ensure_ascii=False, indent=1)
         with open(os.path.join(out, f'report-{mi:02d}.txt'), 'w', encoding='utf-8') as fh:
             fh.write('\n'.join(report) + '\n')
         n_txt = sum(1 for r in rows if r['writeUp'])
