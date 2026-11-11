@@ -1,5 +1,19 @@
 const { app } = require('@azure/functions');
 const { sql, query, json, fail } = require('../db');
+const { buildHandleMap, handlesFor } = require('../handles');
+
+// @handle/#hashtag -> band, rebuilt from the write-ups at most every 10 minutes
+let handleCache = null, handleCacheAt = 0;
+async function handleMap() {
+  if (handleCache && Date.now() - handleCacheAt < 10 * 60 * 1000) return handleCache;
+  const rows = await query(
+    `SELECT r.BandId, b.Name, LEFT(r.WriteUp, 800) AS W
+       FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+      WHERE r.WriteUp IS NOT NULL`);
+  handleCache = buildHandleMap(rows);
+  handleCacheAt = Date.now();
+  return handleCache;
+}
 
 const RELEASE_COLUMNS = `
   r.ReleaseId, r.ReleaseYear, r.ReleaseMonth, r.ReleaseDay, r.ReleaseDate,
@@ -39,7 +53,8 @@ app.http('onThisDay', {
           WHERE g.GigMonth = @m AND g.GigDay = @d
           ORDER BY g.GigDate`,
         { m: [sql.Int, month], d: [sql.Int, day] });
-      return json({ month, day, releases, gigs });
+      const handles = handlesFor(await handleMap(), [...releases, ...gigs].map(x => x.WriteUp));
+      return json({ month, day, releases, gigs, handles });
     } catch (err) {
       return fail(context, err);
     }
@@ -86,7 +101,13 @@ app.http('band', {
            FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
           WHERE r.BandId = @id
           ORDER BY r.ReleaseDate`, { id: [sql.Int, id] });
-      return json({ band: bands[0], releases });
+      const map = await handleMap();
+      const band = bands[0];
+      if (!band.XHandle) {
+        const own = Object.entries(map).find(([, v]) => v.id === band.BandId);
+        if (own) band.XHandle = '@' + own[0];
+      }
+      return json({ band, releases, handles: handlesFor(map, releases.map(x => x.WriteUp)) });
     } catch (err) {
       return fail(context, err);
     }

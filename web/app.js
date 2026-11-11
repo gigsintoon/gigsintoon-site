@@ -13,6 +13,17 @@ function ukToday() {
 function ordinal(n) { const s = ['th','st','nd','rd'], v = n % 100; return n + (s[(v - 20) % 10] || s[v] || s[0]); }
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 
+// Show "@badreligion" / "#SilverSun" as the band name, linked to the band page.
+// Tags that aren't a band (labels, venues, people) become plain words: "#o2AcademyNewcastle" -> "o2 Academy Newcastle".
+let handles = {};
+function words(tag) { return tag.replace(/_/g, ' ').replace(/([a-z0-9])([A-Z])/g, '$1 $2').replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2'); }
+function renderWriteUp(text) {
+  return esc(text).replace(/([@#])([A-Za-z0-9_.]*[A-Za-z0-9_])/g, (all, sym, tag) => {
+    const b = handles[tag.toLowerCase()];
+    return b ? `<button class="bandlink" data-band="${b.id}">${esc(b.name)}</button>` : words(tag);
+  });
+}
+
 async function api(path) {
   const res = await fetch('/api/' + path, { headers: { Accept: 'application/json' } });
   const body = await res.json().catch(() => ({}));
@@ -31,7 +42,7 @@ function releaseCard(r, { showDate = false } = {}) {
       <button class="artist" data-band="${r.BandId}">${esc(r.Artist)}</button>
       <div class="title">${esc(r.Title)}</div>
       <div class="meta">${esc([r.ReleaseType, chart, r.ChartNote, r.Label].filter(Boolean).join(' · '))}</div>
-      ${r.WriteUp ? `<div class="writeup">${esc(r.WriteUp)}</div>` : ''}
+      ${r.WriteUp ? `<div class="writeup">${renderWriteUp(r.WriteUp)}</div>` : ''}
       <div class="badges">
         <span class="badge s-${esc(r.Status)}">${esc(STATUS_LABEL[r.Status] || r.Status)}</span>
         ${r.Owned ? '<span class="badge">Owned</span>' : ''}
@@ -46,7 +57,7 @@ function gigCard(g) {
     <div><div class="year">Gig memory · ${esc(g.GigYear)}</div>
       <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at ${esc(g.Venue)}` : ''}
       ${g.TourName ? `<div class="meta">${esc(g.TourName)}</div>` : ''}
-      ${g.WriteUp ? `<div class="writeup">${esc(g.WriteUp)}</div>` : ''}</div>
+      ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}</div>
   </div>`;
 }
 
@@ -61,6 +72,7 @@ async function showDay(date) {
   history.replaceState(null, '', `/?date=${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
   try {
     const data = await api(`onthisday?month=${m}&day=${d}`);
+    handles = data.handles || {};
     const n = data.releases.length;
     $('daySummary').textContent = n ? `${n} release${n === 1 ? '' : 's'} on this day` : '';
     $('gigs').innerHTML = data.gigs.map(gigCard).join('');
@@ -76,7 +88,8 @@ async function showBand(id) {
   $('bandName').textContent = 'Loading…'; $('bandReleases').innerHTML = ''; $('bandHandles').textContent = '';
   history.pushState(null, '', `/?band=${id}`);
   try {
-    const { band, releases } = await api(`bands/${id}`);
+    const { band, releases, handles: h } = await api(`bands/${id}`);
+    handles = h || {};
     $('bandName').textContent = band.Name;
     $('bandHandles').textContent = [band.XHandle && `X ${band.XHandle}`, band.InstagramHandle && `Instagram ${band.InstagramHandle}`,
       band.BlueskyHandle && `Bluesky ${band.BlueskyHandle}`, `${releases.length} release${releases.length === 1 ? '' : 's'}`]
