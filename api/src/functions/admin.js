@@ -185,6 +185,7 @@ app.http('adminRelease', {
 });
 
 // POST /api/manage/upload?path=11 - November/11th/Band - Title.jpg   body: the image bytes
+// or  POST /api/manage/upload?path=...&url=https://...   (the site downloads the image itself)
 // Saves the image into the media container and returns its permanent public URL.
 app.http('adminUpload', {
   methods: ['POST'],
@@ -196,7 +197,18 @@ app.http('adminUpload', {
     const ext = (path || '').split('.').pop().toLowerCase();
     if (!path || !CONTENT_TYPES[ext]) return json({ ok: false, error: 'Give ?path= ending in .jpg, .jpeg, .png, .webp, .gif or .jfif' }, 400);
     try {
-      const buf = Buffer.from(await request.arrayBuffer());
+      let buf;
+      const from = request.query.get('url');
+      if (from) {
+        // Fetch the image server-side (e.g. Apple Music / Wikipedia / Discogs cover URL)
+        if (!/^https:\/\//i.test(from)) return json({ ok: false, error: 'url must be https' }, 400);
+        const r = await fetch(from, { headers: { 'User-Agent': 'gigsintoon-site/1.0 (cover import)' } });
+        const type = r.headers.get('content-type') || '';
+        if (!r.ok || !type.startsWith('image/')) return json({ ok: false, error: `Couldn't fetch an image (${r.status} ${type})` }, 400);
+        buf = Buffer.from(await r.arrayBuffer());
+      } else {
+        buf = Buffer.from(await request.arrayBuffer());
+      }
       if (!buf.length) return json({ ok: false, error: 'The upload was empty.' }, 400);
       await mediaContainer().getBlockBlobClient(path).uploadData(buf, { blobHTTPHeaders: { blobContentType: CONTENT_TYPES[ext] } });
       return json({ ok: true, path, bytes: buf.length, url: mediaBaseUrl() + path.split('/').map(encodeURIComponent).join('/') });
@@ -269,6 +281,74 @@ app.http('adminResetReleases', {
         SELECT (SELECT COUNT(*) FROM music.Bands) AS Bands, (SELECT COUNT(*) FROM music.Releases) AS Releases,
                (SELECT COUNT(*) FROM music.Images) AS Images;`);
       return json({ ok: true, ...r[0] });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// GET /api/manage/media?path=...  -> the image itself (same-origin, so the browser can read it)
+app.http('adminMediaGet', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'manage/media',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    const path = cleanPath(request.query.get('path'));
+    if (!path) return json({ error: 'Give ?path=' }, 400);
+    try {
+      const blob = mediaContainer().getBlobClient(path);
+      if (!(await blob.exists())) return json({ error: 'Not found' }, 404);
+      const props = await blob.getProperties();
+      return { status: 200, body: await blob.downloadToBuffer(), headers: { 'Content-Type': props.contentType || 'application/octet-stream', 'Cache-Control': 'no-store' } };
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// POST /api/manage/media-copy  body: { "from": "...", "to": "..." }  -> copies a file inside the media container
+app.http('adminMediaCopy', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/media-copy',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const body = await request.json();
+      const from = cleanPath(body.from), to = cleanPath(body.to);
+      if (!from || !to) return json({ ok: false, error: 'Give from and to' }, 400);
+      const c = mediaContainer();
+      const src = c.getBlobClient(from);
+      if (!(await src.exists())) return json({ ok: false, error: 'Source not found' }, 404);
+      const props = await src.getProperties();
+      await c.getBlockBlobClient(to).uploadData(await src.downloadToBuffer(), { blobHTTPHeaders: { blobContentType: props.contentType } });
+      return json({ ok: true, from, to, url: mediaBaseUrl() + to.split('/').map(encodeURIComponent).join('/') });
+    } catch (err) {
+      return failDetail(context, err);
+    }
+  }
+});
+
+// POST /api/manage/release-delete  body: { "band": "...", "title": "...", "date": "YYYY-MM-DD", "confirm": true }
+// Removes one release (and its image links - the image files stay in storage).
+app.http('adminReleaseDelete', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/release-delete',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const b = await request.json();
+      if (!b.band || !b.title || !b.date) return json({ ok: false, error: 'Give band, title and date' }, 400);
+      const found = await query(
+        `SELECT r.ReleaseId, b.Name, r.Title, r.ReleaseDate FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+          WHERE b.Name = @band AND r.Title = @title AND r.ReleaseDate = @date`,
+        { band: [sql.NVarChar(200), b.band], title: [sql.NVarChar(400), b.title], date: [sql.Date, b.date] });
+      if (found.length !== 1 || b.confirm !== true) return json({ ok: true, confirm: false, found });
+      await query(`DELETE FROM music.Images WHERE ReleaseId = @id; DELETE FROM music.SocialPosts WHERE ReleaseId = @id;
+                   DELETE FROM music.Releases WHERE ReleaseId = @id;`, { id: [sql.Int, found[0].ReleaseId] });
+      return json({ ok: true, confirm: true, deleted: found[0] });
     } catch (err) {
       return failDetail(context, err);
     }
