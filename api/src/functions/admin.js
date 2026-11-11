@@ -216,11 +216,17 @@ app.http('adminMediaDelete', {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
     try {
       const body = await request.json();
-      const paths = (body.paths || []).map(cleanPath).filter(Boolean);
+      let paths = (body.paths || []).map(cleanPath).filter(Boolean);
+      // { "allTextFiles": true } -> every .txt in the container (never images)
+      if (body.allTextFiles === true) {
+        paths = [];
+        for await (const b of mediaContainer().listBlobsFlat()) if (/\.txt$/i.test(b.name)) paths.push(b.name);
+      }
       const inUse = new Set((await query(`SELECT BlobPath FROM music.Images`)).map(r => r.BlobPath));
       const c = mediaContainer();
       const result = { deleted: [], wouldDelete: [], notFound: [], keptInUse: [] };
       for (const p of paths) {
+        if (body.allTextFiles === true && !/\.txt$/i.test(p)) continue;
         if (inUse.has(p)) { result.keptInUse.push(p); continue; }
         const blob = c.getBlobClient(p);
         if (!(await blob.exists())) { result.notFound.push(p); continue; }
