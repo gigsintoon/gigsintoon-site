@@ -102,11 +102,14 @@ function listenLinks(r) {
     <a href="https://www.deezer.com/search/${q}" target="_blank" rel="noopener">Deezer</a></div>`;
 }
 
+function gigWhen(g) { const d = new Date(g.GigDate); return `${ordinal(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`; }
+function gigCardDated(g) { return gigCard({ ...g, WriteUp: null }).replace(/Gig memory · \d{4}/, `Gig memory · ${gigWhen(g)}`); }
+
 function gigCard(g) {
   return `<div class="gig" data-gig="${g.GigId}" role="link" tabindex="0">
     ${g.ImageUrl ? `<img src="${esc(g.ImageUrl)}" alt="Gig ticket" loading="lazy">` : ''}
     <div><div class="year">Gig memory · ${esc(g.GigYear)}</div>
-      <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at ${esc(g.Venue)}` : ''}
+      <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at <button class="bandlink" data-venue="${esc(g.Venue)}">${esc(g.Venue)}</button>` : ''}
       ${g.TourName ? `<div class="meta">${esc(g.TourName)}</div>` : ''}
       ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}</div>
   </div>`;
@@ -117,7 +120,7 @@ const TYPE_WORD = { Album: 'an album', Single: 'a single', EP: 'an EP', Live: 'a
 function teaserCard(t) {
   const what = TYPE_WORD[t.ReleaseType] || 'a release';
   return `<div class="card teaser">
-    <div class="cover">${t.HasCover ? `<img src="/api/teaser/${t.Id}" alt="Blurred cover – can you guess it?" loading="lazy">` : '<span>?</span>'}</div>
+    <div class="cover">${t.HasCover ? `<img src="/api/teaser/${t.Id}?b=12" alt="Blurred cover – can you guess it?" loading="lazy">` : '<span>?</span>'}</div>
     <div class="body"><div class="year">${esc(t.ReleaseYear)}</div>
       <div>Coming up: ${what} from ${esc(t.ReleaseYear)} by a band beginning with <strong>${esc(t.Letter)}</strong>.</div>
       <div class="meta">Can you guess it? Check back on the day.</div></div>
@@ -157,7 +160,7 @@ function gigTeaserCard(t) {
 }
 
 function showOnly(id) {
-  for (const v of ['dayView', 'bandView', 'favView', 'gigView', 'yearView', 'statsView', 'guessView']) $(v).hidden = v !== id;
+  for (const v of ['dayView', 'bandView', 'favView', 'gigView', 'yearView', 'statsView', 'guessView', 'venueView', 'weekView']) $(v).hidden = v !== id;
   document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
 }
 
@@ -194,15 +197,16 @@ async function showDay(date) {
 
 async function showBand(id) {
   showOnly('bandView');
-  $('bandName').textContent = 'Loading…'; $('bandReleases').innerHTML = ''; $('bandHandles').textContent = '';
+  $('bandName').textContent = 'Loading…'; $('bandReleases').innerHTML = ''; $('bandGigs').innerHTML = ''; $('bandHandles').textContent = '';
   history.pushState(null, '', `/?band=${id}`);
   try {
-    const { band, releases, handles: h } = await api(`bands/${id}`);
+    const { band, releases, gigs: bandGigs = [], handles: h } = await api(`bands/${id}`);
     handles = h || {};
     $('bandName').textContent = band.Name;
     $('bandHandles').textContent = [band.XHandle && `X ${band.XHandle}`, band.InstagramHandle && `Instagram ${band.InstagramHandle}`,
       band.BlueskyHandle && `Bluesky ${band.BlueskyHandle}`, `${releases.length} release${releases.length === 1 ? '' : 's'}`]
       .filter(Boolean).join(' · ');
+    $('bandGigs').innerHTML = bandGigs.length ? `<h2>Seen live</h2>${bandGigs.map(gigCardDated).join('')}` : '';
     $('bandReleases').innerHTML = releases.length
       ? releases.map(r => releaseCard(r, { showDate: true })).join('')
       : '<p class="empty">Nothing to show for this band yet.</p>';
@@ -225,12 +229,49 @@ async function showYear(year) {
     const fav = new Set(data.favourites || []);
     const key = r => (r.Artist + '|' + r.Title).toLowerCase().replace(/\b(the|a|an)\b/g, '').replace(/&/g, 'and').replace(/[^a-z0-9|]/g, '');
     $('yearSummary').textContent = `${data.releases.length} release${data.releases.length === 1 ? '' : 's'}` + (data.gigs.length ? ` · ${data.gigs.length} gig memor${data.gigs.length === 1 ? 'y' : 'ies'}` : '') + (fav.size ? ' · ★ = one of my albums of the year' : '');
-    $('yearGigs').innerHTML = data.gigs.map(g => gigCard({ ...g, WriteUp: null }) .replace('Gig memory ·', `Gig memory · ${ordinal(new Date(g.GigDate).getUTCDate())} ${MONTHS[new Date(g.GigDate).getUTCMonth()]}`)).join('');
+    $('yearGigs').innerHTML = data.gigs.map(gigCardDated).join('');
     $('yearBody').innerHTML = data.releases.map(r => {
       const card = releaseCard(r, { showDate: true });
       return fav.has(key(r)) ? card.replace('<article class="card', '<article class="card isfav').replace('<div class="year">', '<div class="year">★ ') : card;
     }).join('') || '<p class="empty">Nothing from this year yet.</p>';
   } catch (e) { $('yearSummary').textContent = e.message; }
+}
+
+// Venue page: every gig there
+async function showVenue(name) {
+  showOnly('venueView');
+  history.replaceState(null, '', `/?venue=${encodeURIComponent(name)}`);
+  $('venueTitle').textContent = name; $('venueBody').innerHTML = '<p class="muted">Loading…</p>';
+  try {
+    const v = await api(`venue?name=${encodeURIComponent(name)}`);
+    $('venueTitle').textContent = v.venue;
+    $('venueBody').innerHTML = `<p class="muted">${v.gigs.length} gig${v.gigs.length === 1 ? '' : 's'}${v.city ? ' · ' + esc(v.city) : ''} · still adding more</p>`
+      + (v.gigs.map(gigCardDated).join('') || '<p class="empty">No gigs here yet.</p>');
+  } catch (e) { $('venueBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+
+// This week: the next seven days at a glance
+async function showWeek() {
+  showOnly('weekView');
+  history.replaceState(null, '', '/?page=week');
+  $('weekBody').innerHTML = '<p class="muted">Loading…</p>';
+  const start = ukToday();
+  const days = [...Array(7)].map((_, i) => addDays(start, i));
+  try {
+    const data = await Promise.all(days.map(d => api(`onthisday?month=${d.getUTCMonth() + 1}&day=${d.getUTCDate()}`).catch(() => null)));
+    $('weekBody').innerHTML = days.map((d, i) => {
+      const x = data[i] || { releases: [], gigs: [], teasers: [], gigTeasers: [] };
+      const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
+      const thumbs = x.releases.slice(0, 12).map(r => r.CoverUrl ? `<img src="${esc(r.CoverUrl)}" alt="${esc(r.Artist + ' – ' + r.Title)}" title="${esc(r.ReleaseYear + ' · ' + r.Artist + ' – ' + r.Title)}" loading="lazy">` : '').join('')
+        + (x.teasers || []).slice(0, Math.max(0, 12 - x.releases.length)).map(t => t.HasCover ? `<img class="tz" src="/api/teaser/${t.Id}?b=14" alt="Mystery cover" loading="lazy">` : '').join('');
+      const n = x.releases.length + (x.teasers || []).length, g = (x.gigs || []).length + (x.gigTeasers || []).length;
+      const mmdd = `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+      return `<a class="weekday" href="/?date=${mmdd}" data-date="${mmdd}">
+        <div class="wd"><b>${label}</b><span>${ordinal(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]}</span></div>
+        <div class="wn">${n} release${n === 1 ? '' : 's'}${g ? ` · ${g} gig memor${g === 1 ? 'y' : 'ies'}` : ''}</div>
+        <div class="wthumbs">${thumbs}</div></a>`;
+    }).join('');
+  } catch (e) { $('weekBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
 
 // Stats
@@ -261,7 +302,7 @@ async function showStats() {
         <section><h2>Busiest years</h2>${bars(s.topYears, null, 'N', r => `<button class="bandlink" data-year="${r.Year}">${r.Year}</button>`)}</section>
         <section><h2>Albums, singles & EPs</h2>${bars(s.types, r => r.Type)}</section>
         <section><h2>Gigs by year</h2><p class="wip">🎫 Gig memories are a work in progress – more tickets and setlists are being added all the time.</p>${bars(s.gigYears, r => r.Year)}</section>
-        <section><h2>Most-visited venues</h2><p class="wip">So far – still adding gigs!</p>${bars(s.venues, r => r.Venue)}</section>
+        <section><h2>Most-visited venues</h2><p class="wip">So far – still adding gigs!</p>${bars(s.venues, null, 'N', r => `<button class="bandlink" data-venue="${esc(r.Venue)}">${esc(r.Venue)}</button>`)}</section>
         ${s.gigBands.length ? `<section><h2>Seen live most</h2>${bars(s.gigBands, null, 'N', bandLink)}</section>` : ''}
       </div>`;
   } catch (e) { $('statsBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
@@ -278,7 +319,7 @@ async function showGuess() {
     const last = g.lastWeek;
     const h = g.hints || {};
     // Each wrong guess sharpens the picture and unlocks another clue
-    const BLUR = [9, 6, 4, 2.5, 1.2];
+    const BLUR = [14, 10, 7, 4.5, 2.5];
     const CLUES = [
       `It's ${what} from <b>${g.year}</b>, by a band beginning with <b>${esc(g.letter)}</b>.`,
       `It came out in <b>${MONTH_NAMES[(h.month || 1) - 1]}</b>.`,
@@ -288,7 +329,7 @@ async function showGuess() {
     let wrong = 0;
     $('guessBody').innerHTML = `
       <div class="guess">
-        <div class="gcover"><img src="/api/teaser/${g.id}" alt="This week's mystery cover" style="--b:${BLUR[0]}px"></div>
+        <div class="gcover"><img src="/api/teaser/${g.id}?b=${BLUR[0]}" alt="This week's mystery cover"></div>
         <div class="gside">
           <p class="lead">Can you name this week's mystery cover? Guess the band or the title.</p>
           <ul id="clues" class="clues"><li>${CLUES[0]}</li></ul>
@@ -303,8 +344,9 @@ async function showGuess() {
         <div class="fav"><img src="${esc(last.cover)}" alt="" loading="lazy"><div><button class="artist" data-band="${last.bandId}">${esc(last.artist)}</button>
         <div class="title">${esc(last.title)} (${last.year})</div><div class="meta">${last.tally.correct} of ${last.tally.tries} guessed it</div></div></div>` : ''}`;
     const img = document.querySelector('.gcover img');
+    BLUR.slice(1).forEach(b => { const p = new Image(); p.src = `/api/teaser/${g.id}?b=${b}`; });
     const reveal = (a, text) => {
-      img.src = a.cover; img.style.setProperty('--b', '0px'); document.querySelector('.gcover').classList.add('revealed');
+      img.src = a.cover; document.querySelector('.gcover').classList.add('revealed');
       $('guessResult').innerHTML = `${text} <b>${esc(a.artist)} – ${esc(a.title)}</b> (${a.year}). <a href="/?date=${String(a.month).padStart(2, '0')}-${String(a.day).padStart(2, '0')}">See it on its day</a>`;
       $('guessForm').remove(); $('giveUp').remove();
     };
@@ -313,7 +355,7 @@ async function showGuess() {
       const r = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guess: e.target.guess.value }) }).then(x => x.json());
       if (r.correct) { reveal(r.answer, wrong ? `🎉 Got it in ${wrong + 1}!` : '🎉 First time – spot on!'); return; }
       wrong++;
-      img.style.setProperty('--b', `${BLUR[Math.min(wrong, BLUR.length - 1)]}px`);
+      img.src = `/api/teaser/${g.id}?b=${BLUR[Math.min(wrong, BLUR.length - 1)]}`;
       if (CLUES[wrong]) $('clues').insertAdjacentHTML('beforeend', `<li class="new">${CLUES[wrong]}</li>`);
       $('guessResult').textContent = `Not quite – have another go! (${wrong} wrong guess${wrong === 1 ? '' : 'es'})`;
       if (wrong >= 3) $('giveUp').hidden = false;
@@ -395,6 +437,10 @@ document.addEventListener('click', e => {
   if (gg && !e.target.closest('[data-band]')) { showGig(gg.dataset.gig); return; }
   const fy = e.target.closest('[data-favyear]');
   if (fy) { showFavourites(fy.dataset.favyear); return; }
+  const vb = e.target.closest('[data-venue]');
+  if (vb) { e.stopPropagation(); showVenue(vb.dataset.venue); return; }
+  const wd = e.target.closest('[data-date]');
+  if (wd) { e.preventDefault(); const [mm, dd] = wd.dataset.date.split('-').map(Number); showDay(new Date(Date.UTC(ukToday().getUTCFullYear(), mm - 1, dd))); return; }
   const yb = e.target.closest('[data-year]');
   if (yb) { showYear(yb.dataset.year); return; }
   const b = e.target.closest('[data-band]');
@@ -413,6 +459,7 @@ $('navDay').onclick = e => { e.preventDefault(); showDay(current); };
 $('navFav').onclick = e => { e.preventDefault(); showFavourites(); };
 $('navYears').onclick = e => { e.preventDefault(); showYear(); };
 $('navStats').onclick = e => { e.preventDefault(); showStats(); };
+$('navWeek').onclick = e => { e.preventDefault(); showWeek(); };
 $('navGuess').onclick = e => { e.preventDefault(); showGuess(); };
 $('surpriseBtn').onclick = async () => {
   try {
@@ -442,6 +489,8 @@ function route() {
   else if (p.get('page') === 'favourites') showFavourites(p.get('year'));
   else if (p.get('page') === 'years' || p.get('year')) showYear(p.get('year'));
   else if (p.get('page') === 'stats') showStats();
+  else if (p.get('page') === 'week') showWeek();
+  else if (p.get('venue')) showVenue(p.get('venue'));
   else if (p.get('page') === 'guess') showGuess();
   else if (/^\d{2}-\d{2}$/.test(p.get('date') || '')) {
     const [mm, dd] = p.get('date').split('-').map(Number);

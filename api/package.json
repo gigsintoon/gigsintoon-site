@@ -6,6 +6,7 @@
   "dependencies": {
     "@azure/functions": "^4.5.0",
     "mssql": "^11.0.1",
-    "@azure/storage-blob": "^12.24.0"
+    "@azure/storage-blob": "^12.24.0",
+    "sharp": "^0.33.5"
   }
 }

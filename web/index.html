@@ -22,7 +22,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
   <meta name="theme-color" content="#111214">
-  <link rel="stylesheet" href="/styles.css?v=202611121513">
+  <link rel="stylesheet" href="/styles.css?v=202611121529">
 </head>
 <body>
   <header class="top">
@@ -31,6 +31,7 @@
       <nav class="nav">
         <a id="navDay" data-nav="dayView" href="/">On this day</a>
         <a id="navFav" data-nav="favView" href="/?page=favourites">Favourites</a>
+        <a id="navWeek" data-nav="weekView" href="/?page=week">This week</a>
         <a id="navYears" data-nav="yearView" href="/?page=years">Years</a>
         <a id="navStats" data-nav="statsView" href="/?page=stats">Stats</a>
         <a id="navGuess" data-nav="guessView" href="/?page=guess">Guess the cover</a>
@@ -77,6 +78,7 @@
       <button id="backBtn" class="ghost">‹ Back</button>
       <h1 id="bandName"></h1>
       <p id="bandHandles" class="muted"></p>
+      <div id="bandGigs"></div>
       <div id="bandReleases" class="grid"></div>
     </section>
 
@@ -91,6 +93,18 @@
       <p id="yearSummary" class="muted"></p>
       <div id="yearGigs"></div>
       <div id="yearBody" class="grid"></div>
+    </section>
+
+    <section id="weekView" hidden>
+      <h1>This week</h1>
+      <p class="muted">The next seven days on Gigs in toon – tap a day to see everything.</p>
+      <div id="weekBody"></div>
+    </section>
+
+    <section id="venueView" hidden>
+      <button class="ghost" onclick="history.back()">‹ Back</button>
+      <h1 id="venueTitle">Venue</h1>
+      <div id="venueBody"></div>
     </section>
 
     <section id="statsView" hidden>
@@ -116,6 +130,6 @@
     <a href="https://x.com/gigsintoon" rel="noopener">X</a><a href="https://www.instagram.com/gigsintoon" rel="noopener">Instagram</a><a href="https://bsky.app/profile/gigsintoon.bsky.social" rel="noopener">Bluesky</a>
   </div></footer>
   <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
-  <script src="/app.js?v=202611121513"></script>
+  <script src="/app.js?v=202611121529"></script>
 </body>
 </html>

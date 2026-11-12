@@ -5,6 +5,23 @@ const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = re
 const FAVOURITES = require('../favourites.json');
 const { BlobServiceClient } = require('@azure/storage-blob');
 const crypto = require('crypto');
+let sharpLib = null;
+function sharp() { if (!sharpLib) sharpLib = require('sharp'); return sharpLib; }
+const DAY_OK = (mcol, dcol) => `(${mcol} < MONTH(${UK_TODAY_EXPR}) OR (${mcol} = MONTH(${UK_TODAY_EXPR}) AND ${dcol} <= DAY(${UK_TODAY_EXPR})))`;
+const UK_TODAY_EXPR = `CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)`;
+const GIG_COLS = `g.GigId, YEAR(g.GigDate) AS GigYear, g.GigDate, g.TourName, COALESCE(g.VenueAsBilled, v.Name) AS Venue,
+  (SELECT STRING_AGG(b.Name, ' / ') WITHIN GROUP (ORDER BY gb.BillOrder) FROM music.GigBands gb JOIN music.Bands b ON b.BandId = gb.BandId WHERE gb.GigId = g.GigId) AS Bands,
+  (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.GigId = g.GigId ORDER BY i.SortOrder, i.ImageId) AS ImageUrl`;
+const VENUE_NORM = `LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(COALESCE(v.Name, g.VenueAsBilled), ' Students'' Union', ''), ' Students’ Union', ''), ' Newcastle', '')))`;
+async function fetchImage(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('image ' + r.status);
+  return Buffer.from(await r.arrayBuffer());
+}
+async function blurred(url, sigma, size = 600) {
+  const img = sharp()(await fetchImage(url)).resize(size, size, { fit: 'cover' });
+  return (sigma > 0.3 ? img.blur(sigma) : img).jpeg({ quality: 82 }).toBuffer();
+}
 function importBlob(name) {
   return BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING).getContainerClient('import').getBlockBlobClient(name);
 }
@@ -183,7 +200,12 @@ app.http('band', {
         const own = Object.entries(map).find(([, v]) => v.id === band.BandId);
         if (own) band.XHandle = '@' + own[0];
       }
-      return json({ band, releases, handles: handlesFor(map, releases.map(x => x.WriteUp)), admin: all });
+      const gigs = await query(
+        `SELECT ${GIG_COLS} FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
+          WHERE EXISTS (SELECT 1 FROM music.GigBands gb WHERE gb.GigId = g.GigId AND gb.BandId = @id)
+            ${all ? '' : `AND g.Status = 'Posted' AND ${DAY_OK('g.GigMonth', 'g.GigDay')}`}
+          ORDER BY g.GigDate DESC`, { id: [sql.Int, id] });
+      return json({ band, releases, gigs, handles: handlesFor(map, releases.map(x => x.WriteUp)), admin: all });
     } catch (err) {
       return fail(context, err);
     }
@@ -254,10 +276,9 @@ app.http('teaser', {
           WHERE r.ReleaseId = @id AND r.Status <> 'DoNotPost' ORDER BY i.SortOrder, i.ImageId`,
         { id: [sql.Int, parseInt(request.params.id, 10)] });
       if (!rows.length) return { status: 404 };
-      const r = await fetch(rows[0].PublicUrl);
-      if (!r.ok) return { status: 404 };
-      return { status: 200, body: Buffer.from(await r.arrayBuffer()),
-               headers: { 'Content-Type': r.headers.get('content-type') || 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };
+      const b = Math.max(0, Math.min(40, parseFloat(request.query.get('b') ?? '12') || 0));
+      const body = await blurred(rows[0].PublicUrl, isOwner(request) && request.query.get('b') === '0' ? 0 : Math.max(b, 1.5));
+      return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };
     } catch (err) {
       return fail(context, err);
     }
@@ -277,10 +298,9 @@ app.http('gigTeaser', {
           WHERE g.GigId = @id AND g.Status = 'Posted' ORDER BY i.SortOrder, i.ImageId`,
         { id: [sql.Int, parseInt(request.params.id, 10)] });
       if (!rows.length) return { status: 404 };
-      const r = await fetch(rows[0].PublicUrl);
-      if (!r.ok) return { status: 404 };
-      return { status: 200, body: Buffer.from(await r.arrayBuffer()),
-               headers: { 'Content-Type': r.headers.get('content-type') || 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };
+      const b = Math.max(0, Math.min(40, parseFloat(request.query.get('b') ?? '12') || 0));
+      const body = await blurred(rows[0].PublicUrl, isOwner(request) && request.query.get('b') === '0' ? 0 : Math.max(b, 1.5));
+      return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };
     } catch (err) {
       return fail(context, err);
     }
@@ -565,6 +585,98 @@ app.http('report', {
       const guess = await readBlobJson(`guess/${week}.json`, { tries: 0, correct: 0 });
       const [counts] = await query(`SELECT (SELECT COUNT(*) FROM music.Releases) AS Releases, (SELECT COUNT(*) FROM music.Gigs) AS Gigs`);
       return json({ generated: new Date().toISOString(), visits, unreadMessages: messages, openTodos: todos, siteAdditionsWaiting: additions, guessTheCover: { week, ...guess }, counts });
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// GET /api/venue?name=Carling%20Academy -> every gig at that venue (names like "... Students' Union" are merged)
+app.http('venue', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'venue',
+  handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    const all = seesAll(request);
+    const name = String(request.query.get('name') || '').trim().slice(0, 200);
+    if (!name) return json({ error: 'Which venue?' }, 400);
+    try {
+      const gigs = await query(
+        `SELECT ${GIG_COLS}, v.City FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
+          WHERE ${VENUE_NORM} = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(@n, ' Students'' Union', ''), ' Students’ Union', ''), ' Newcastle', '')))
+            ${all ? '' : `AND g.Status = 'Posted' AND ${DAY_OK('g.GigMonth', 'g.GigDay')}`}
+          ORDER BY g.GigDate`, { n: [sql.NVarChar(200), name] });
+      return json({ venue: name.replace(/ Students['’] Union| Newcastle/g, '').trim(), city: gigs[0]?.City || null, gigs });
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// GET /api/roundup/2026-11-14.jpg -> one image with all of that day's covers (for the evening social post)
+app.http('roundup', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'roundup/{date}',
+  handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:\.jpg)?$/.exec(request.params.date || '');
+    if (!m) return { status: 400 };
+    const month = +m[2], day = +m[3];
+    try {
+      const rows = await query(
+        `SELECT TOP 36 (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS Url
+           FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+          WHERE r.ReleaseMonth = @m AND r.ReleaseDay = @d AND ${VISIBLE}
+            AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
+          ORDER BY r.ReleaseYear DESC`, { m: [sql.Int, month], d: [sql.Int, day] });
+      const [{ N }] = await query(`SELECT COUNT(*) AS N FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE r.ReleaseMonth = @m AND r.ReleaseDay = @d AND ${VISIBLE}`,
+        { m: [sql.Int, month], d: [sql.Int, day] });
+      if (!rows.length) return { status: 404 };
+      const S = 1080, head = 150, foot = 70;
+      const cols = Math.ceil(Math.sqrt(rows.length)), rowsN = Math.ceil(rows.length / cols);
+      const cell = Math.floor(Math.min(S / cols, (S - head - foot) / rowsN));
+      const gridW = cell * cols, gridH = cell * rowsN;
+      const ox = Math.floor((S - gridW) / 2), oy = head + Math.floor((S - head - foot - gridH) / 2);
+      const tiles = await Promise.all(rows.map(async (r, i) => {
+        try {
+          const input = await sharp()(await fetchImage(r.Url)).resize(cell - 6, cell - 6, { fit: 'cover' }).jpeg().toBuffer();
+          return { input, left: ox + (i % cols) * cell + 3, top: oy + Math.floor(i / cols) * cell + 3 };
+        } catch { return null; }
+      }));
+      const ord = n => n + (['th', 'st', 'nd', 'rd'][(n % 100 - 20) % 10] || ['th', 'st', 'nd', 'rd'][n % 100] || 'th');
+      const MON = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+      const esc = t => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}">
+        <text x="40" y="70" font-family="Arial, Helvetica, sans-serif" font-size="52" font-weight="800" fill="#ececec">On this day · <tspan fill="#f2b134">${esc(ord(day) + ' ' + MON[month - 1])}</tspan></text>
+        <text x="40" y="118" font-family="Arial, Helvetica, sans-serif" font-size="30" fill="#9aa0a6">${N} release${N === 1 ? '' : 's'} from my collection</text>
+        <text x="${S - 40}" y="${S - 26}" text-anchor="end" font-family="Arial, Helvetica, sans-serif" font-size="32" font-weight="800" fill="#ececec">Gigs in <tspan fill="#f2b134">toon</tspan> · gigsintoon.co.uk</text>
+      </svg>`);
+      const body = await sharp()({ create: { width: S, height: S, channels: 3, background: '#111214' } })
+        .composite([...tiles.filter(Boolean), { input: svg, left: 0, top: 0 }]).jpeg({ quality: 86 }).toBuffer();
+      return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=3600' } };
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// GET /api/guess-image/2026-W47.jpg -> this week's mystery cover, blurred, with a "Guess the cover" banner (for Monday's post)
+app.http('guessImage', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'guess-image/{week}',
+  handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    try {
+      const week = ukWeek();
+      const p = await puzzleFor(week);
+      if (!p) return { status: 404 };
+      const S = 1080;
+      const cover = await blurred(p.CoverUrl, 9, 860);
+      const letter = p.Artist.replace(/^the\s+/i, '').charAt(0).toUpperCase().replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}">
+        <text x="${S / 2}" y="66" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="#ececec">Guess the <tspan fill="#f2b134">cover</tspan></text>
+        <text x="${S / 2}" y="${S - 40}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="32" fill="#cfd3d7">${p.ReleaseYear} · band begins with ${letter} · gigsintoon.co.uk</text>
+      </svg>`);
+      const body = await sharp()({ create: { width: S, height: S, channels: 3, background: '#111214' } })
+        .composite([{ input: cover, left: 110, top: 100 }, { input: svg, left: 0, top: 0 }]).jpeg({ quality: 86 }).toBuffer();
+      return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=3600' } };
     } catch (err) { return fail(context, err); }
   }
 });
