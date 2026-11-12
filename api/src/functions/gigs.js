@@ -1,28 +1,6 @@
 const { app } = require('@azure/functions');
 const { sql, query, json, fail } = require('../db');
 const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
-const { BlobServiceClient } = require('@azure/storage-blob');
-
-// Setlists and playlist links live in import/gig-extras.json ({ gigId: {setlist, setlistUrl, playlistUrl} })
-// because the site's database login can't add columns.
-const EXTRAS = 'gig-extras.json';
-function extrasBlob() {
-  return BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING)
-    .getContainerClient('import').getBlockBlobClient(EXTRAS);
-}
-let extrasCache = null, extrasAt = 0;
-async function readExtras(fresh) {
-  if (!fresh && extrasCache && Date.now() - extrasAt < 5 * 60 * 1000) return extrasCache;
-  const b = extrasBlob();
-  extrasCache = (await b.exists()) ? JSON.parse((await b.downloadToBuffer()).toString('utf8') || '{}') : {};
-  extrasAt = Date.now();
-  return extrasCache;
-}
-async function writeExtras(o) {
-  const text = JSON.stringify(o);
-  await extrasBlob().upload(text, Buffer.byteLength(text), { blobHTTPHeaders: { blobContentType: 'application/json' } });
-  extrasCache = o; extrasAt = Date.now();
-}
 
 // GET /api/gigs/5 -> one gig with all its pictures, bill, setlist and playlist
 app.http('gig', {
@@ -36,13 +14,12 @@ app.http('gig', {
       const id = parseInt(request.params.id, 10);
       const gigs = await query(
         `SELECT g.GigId, g.GigDate, YEAR(g.GigDate) AS GigYear, g.TourName, g.WriteUp, g.Status,
-                COALESCE(g.VenueAsBilled, v.Name) AS Venue, v.City
+                COALESCE(g.VenueAsBilled, v.Name) AS Venue, v.City, g.SetlistJson, g.SetlistUrl, g.PlaylistUrl
            FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
           WHERE g.GigId = @id ${all ? '' : `AND g.Status = 'Posted'`}`, { id: [sql.Int, id] });
       if (!gigs.length) return json({ error: 'Gig not found.' }, 404);
       const g = gigs[0];
-      const x = (await readExtras())[g.GigId] || {};
-      g.Setlist = x.setlist || []; g.SetlistUrl = x.setlistUrl || null; g.PlaylistUrl = x.playlistUrl || null;
+      g.Setlist = JSON.parse(g.SetlistJson || '[]'); delete g.SetlistJson;
       g.Bands = await query(
         `SELECT b.BandId, b.Name, gb.Billing FROM music.GigBands gb JOIN music.Bands b ON b.BandId = gb.BandId
           WHERE gb.GigId = @id ORDER BY gb.BillOrder`, { id: [sql.Int, id] });
@@ -119,10 +96,10 @@ app.http('adminGig', {
       });
       const gigId = rows[0].GigId;
       if (b.setlist || b.setlistUrl || b.playlistUrl) {
-        const all = await readExtras(true);
-        const cur = all[gigId] || {};
-        all[gigId] = { setlist: b.setlist || cur.setlist, setlistUrl: b.setlistUrl || cur.setlistUrl, playlistUrl: b.playlistUrl || cur.playlistUrl };
-        await writeExtras(all);
+        await query(`UPDATE music.Gigs SET SetlistJson = COALESCE(@sl, SetlistJson), SetlistUrl = COALESCE(@su, SetlistUrl),
+                       PlaylistUrl = COALESCE(@pu, PlaylistUrl) WHERE GigId = @g`, {
+          g: [sql.Int, gigId], sl: [sql.NVarChar(sql.MAX), b.setlist ? JSON.stringify(b.setlist) : null],
+          su: [sql.NVarChar(400), b.setlistUrl || null], pu: [sql.NVarChar(400), b.playlistUrl || null] });
       }
       return json({ ok: true, gigId });
     } catch (err) {

@@ -582,11 +582,10 @@ $('surpriseBtn').onclick = async () => {
 function renderAdminBar() {
   $('adminBar').hidden = !isAdmin;
   $('signIn').hidden = isAdmin;
-  $('visitorToggle').textContent = asVisitor ? 'Viewing as visitor – switch back' : 'View as visitor';
+  if (!isAdmin) return;
+  $('adminBar').innerHTML = window.adminBarHtml(`<button id="visitorToggle" type="button" class="ghost">${asVisitor ? 'Viewing as visitor – switch back' : 'View as visitor'}</button>`);
+  $('visitorToggle').onclick = () => { asVisitor = !asVisitor; sessionStorageSet('asVisitor', asVisitor ? '1' : '0'); renderAdminBar(); route(); };
 }
-$('visitorToggle').onclick = () => {
-  asVisitor = !asVisitor; sessionStorageSet('asVisitor', asVisitor ? '1' : '0'); renderAdminBar(); route();
-};
 
 function route() {
   if (!['/', '/index.html'].includes(location.pathname)) { location.replace('/404.html'); return; }

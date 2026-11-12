@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Settings – Gigs in toon</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css?v=202611122246">
+  <link rel="stylesheet" href="/admin.css?v=202611122246">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap bar">
+      <a class="brand" href="/">Gigs in <span>toon</span></a>
+      <nav class="nav"><a href="/">On this day</a><a href="/?page=favourites">Favourites</a><a href="/?page=week">This week</a><a href="/?page=years">Years</a><a href="/?page=stats">Stats</a><a href="/?page=guess">Guess the cover</a><a href="/about">About</a><a href="/contact">Contact</a></nav>
+    </div>
+    <div id="adminBar" class="adminbar" data-static></div>
+  </header>
+  <script src="/adminbar.js?v=202611122246"></script>
+  <main class="wrap">
+    <h1>Settings</h1>
+    <section class="visits">
+      <h2>Site at a glance <button id="refresh" type="button" class="ghost" style="font-size:13px">Refresh</button></h2>
+      <div id="info" class="muted">Loading…</div>
+    </section>
+    <section class="visits">
+      <h2>Weekly email</h2>
+      <p class="muted help">Every Monday a summary (visitors, new messages, your to-do list) is collected by GitHub and emailed to you at about 7:40am.
+        It uses a private key shared between the site and GitHub – generate it here and paste it into GitHub yourself, so it never passes through anyone else.
+        Only make a new one if the old key is lost or leaked.</p>
+      <button id="genKey" type="button">Generate a new key</button>
+      <div id="keyOut" class="muted" style="margin-top:10px"></div>
+    </section>
+  </main>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+</script>
+<script>
+const size = b => b == null ? '–' : b < 1024 * 1024 ? (b / 1024).toFixed(0) + ' KB' : b < 1024 ** 3 ? (b / 1024 / 1024).toFixed(1) + ' MB' : (b / 1024 ** 3).toFixed(2) + ' GB';
+const n = x => Number(x || 0).toLocaleString('en-GB');
+async function loadInfo(fresh) {
+  $('info').textContent = 'Loading…';
+  try {
+    const [i, b] = await Promise.all([
+      fetch('/api/manage/site-info' + (fresh ? '?fresh=1' : '')).then(r => r.json()),
+      fetch('/build-info.json', { cache: 'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null)]);
+    const t = i.traffic, c = i.counts, m = i.media;
+    const folders = Object.entries(m.folders).sort((a, z) => z[1].bytes - a[1].bytes).slice(0, 8)
+      .map(([k, v]) => `<li>${esc(k)} <span class="muted">${n(v.files)} files · ${size(v.bytes)}</span></li>`).join('');
+    const tables = (i.db.tables || []).slice(0, 12).map(r => `<li>${esc(r.TableName)} <span class="muted">${n(r.Rows)} rows${r.KB != null ? ' · ' + size(r.KB * 1024) : ''}</span></li>`).join('');
+    $('info').innerHTML = `
+      <div class="tiles">
+        <div><b>${t ? n(t.Today) : '–'}</b><span>views today</span></div>
+        <div><b>${t ? n(t.Week) : '–'}</b><span>views this week</span></div>
+        <div><b>${t ? n(t.Month) : '–'}</b><span>views in 30 days</span></div>
+        <div><b>${t ? n(t.AllTime) : '–'}</b><span>views all time</span></div>
+      </div>
+      <div class="tiles">
+        <div><b>${n(c.Releases)}</b><span>releases</span></div>
+        <div><b>${n(c.Bands)}</b><span>bands</span></div>
+        <div><b>${n(c.Gigs)}</b><span>gigs</span></div>
+        <div><b>${n(c.Charted)}</b><span>with a chart position</span></div>
+      </div>
+      <div class="tiles">
+        <div><b>${n(m.images)}</b><span>images (${size(m.imageBytes)})</span></div>
+        <div><b>${size(i.db.kb != null ? i.db.kb * 1024 : null)}</b><span>database</span></div>
+        <div><b>${b ? size(b.bytes) : '–'}</b><span>website files${b ? ` (${n(b.files)})` : ''}</span></div>
+        <div><b>${size(m.bytes + i.import.bytes)}</b><span>file storage in total</span></div>
+      </div>
+      ${i.db.note ? `<p class="muted">${esc(i.db.note)}</p>` : ''}
+      <div class="vcols"><div><h3>Images by folder</h3><ol>${folders}</ol></div><div><h3>Database tables</h3><ol>${tables}</ol></div></div>
+      <p class="muted" style="font-size:13px">${b ? `Website last published ${new Date(b.builtAt).toLocaleString('en-GB')} (version ${esc(b.commit)}). ` : ''}Figures from ${new Date(i.at).toLocaleTimeString('en-GB')}.</p>`;
+  } catch (e) { $('info').textContent = 'Couldn\'t load: ' + e.message; }
+}
+$('refresh').onclick = () => loadInfo(true);
+loadInfo();
+
+let keyArmed = false;
+$('genKey').addEventListener('click', async () => {
+  const btn = $('genKey');
+  if (!keyArmed) {
+    keyArmed = true; btn.textContent = 'Yes – make a new key';
+    $('keyOut').textContent = 'Click again to confirm. Any old key already in GitHub will stop working until you paste the new one in.';
+    return;
+  }
+  keyArmed = false; btn.disabled = true; btn.textContent = 'Making a key…';
+  try {
+    const res = await fetch('/api/manage/report-key', { method: 'POST' });
+    const text = await res.text();
+    let r = {}; try { r = JSON.parse(text); } catch { /* not JSON */ }
+    if (res.status === 401 || res.status === 403 || (!r.ok && /<html/i.test(text))) throw new Error('You look signed out – go to www.gigsintoon.co.uk/login, then try again.');
+    if (!r.ok || !r.key) throw new Error(r.error || `The site said ${res.status}.`);
+    $('keyOut').innerHTML = `<p>Your key (shown once – copy it now):</p><input id="keyBox" readonly style="width:100%;max-width:560px;font-family:monospace;padding:6px" value="${esc(r.key)}" onclick="this.select()">
+    <button id="copyKey" type="button" style="margin-top:6px">Copy key</button>
+    <ol><li>Open <a href="https://github.com/gigsintoon/gigsintoon-site/settings/secrets/actions/new" target="_blank" rel="noopener">GitHub → gigsintoon-site → Settings → Secrets → Actions → New secret</a></li>
+    <li>Name: <b>REPORT_KEY</b>, Secret: paste the key, then <b>Add secret</b>.</li>
+    <li>Optional test: <a href="https://github.com/gigsintoon/gigsintoon-site/actions/workflows/weekly-report.yml" target="_blank" rel="noopener">Actions → Weekly site report → Run workflow</a>.</li></ol>`;
+    $('copyKey').onclick = async () => { try { await navigator.clipboard.writeText($('keyBox').value); $('copyKey').textContent = 'Copied ✓'; } catch { $('keyBox').select(); } };
+  } catch (e) {
+    $('keyOut').textContent = 'Could not make a key: ' + e.message;
+  } finally { btn.disabled = false; btn.textContent = 'Generate a new key'; }
+});
+
+</script>
+</body>
+</html>

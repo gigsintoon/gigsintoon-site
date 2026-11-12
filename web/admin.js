@@ -102,45 +102,9 @@ document.addEventListener('click', e => {
 ['fMissing', 'fHideRed'].forEach(id => $(id).addEventListener('change', render));
 $('fText').addEventListener('input', render);
 
-async function loadVisits() {
-  try {
-    const v = await (await fetch('/api/manage/visits?days=30')).json();
-    const total = v.byDay.reduce((s, d) => s + d.Views, 0), mob = v.byDay.reduce((s, d) => s + d.Mobile, 0);
-    const max = Math.max(1, ...v.byDay.map(d => d.Views));
-    const bars = v.byDay.map(d => `<div class="vbar" title="${d.ViewDate.slice(0, 10)}: ${d.Views}"><i style="height:${Math.round(d.Views / max * 100)}%"></i></div>`).join('');
-    const list = (rows, k) => rows.length ? '<ol>' + rows.map(r => `<li>${esc(r[k] || '(direct)')} <span class="muted">${r.Views}</span></li>`).join('') + '</ol>' : '<p class="muted">None yet.</p>';
-    $('visitBody').innerHTML = total
-      ? `<p><b>${total}</b> page views · ${Math.round(mob / total * 100)}% on phones</p><div class="vbars">${bars}</div>
-         <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div></div>`
-      : 'No visits counted yet – the site is still sign-in only, so this starts once it goes public.';
-  } catch { $('visitBody').textContent = 'Couldn\'t load visitor numbers.'; }
-}
-
-let keyArmed = false;
-$('genKey').addEventListener('click', async () => {
-  const btn = $('genKey');
-  if (!keyArmed) {
-    keyArmed = true; btn.textContent = 'Yes – make a new key';
-    $('keyOut').textContent = 'Click again to confirm. Any old key already in GitHub will stop working until you paste the new one in.';
-    return;
-  }
-  keyArmed = false; btn.disabled = true; btn.textContent = 'Making a key…';
-  try {
-    const res = await fetch('/api/manage/report-key', { method: 'POST' });
-    const text = await res.text();
-    let r = {}; try { r = JSON.parse(text); } catch { /* not JSON */ }
-    if (res.status === 401 || res.status === 403 || (!r.ok && /<html/i.test(text))) throw new Error('You look signed out – go to www.gigsintoon.co.uk/login, then try again.');
-    if (!r.ok || !r.key) throw new Error(r.error || `The site said ${res.status}.`);
-    $('keyOut').innerHTML = `<p>Your key (shown once – copy it now):</p><input id="keyBox" readonly style="width:100%;max-width:560px;font-family:monospace;padding:6px" value="${esc(r.key)}" onclick="this.select()">
-    <button id="copyKey" type="button" style="margin-top:6px">Copy key</button>
-    <ol><li>Open <a href="https://github.com/gigsintoon/gigsintoon-site/settings/secrets/actions/new" target="_blank" rel="noopener">GitHub → gigsintoon-site → Settings → Secrets → Actions → New secret</a></li>
-    <li>Name: <b>REPORT_KEY</b>, Secret: paste the key, then <b>Add secret</b>.</li>
-    <li>Optional test: <a href="https://github.com/gigsintoon/gigsintoon-site/actions/workflows/weekly-report.yml" target="_blank" rel="noopener">Actions → Weekly site report → Run workflow</a>.</li></ol>`;
-    $('copyKey').onclick = async () => { try { await navigator.clipboard.writeText($('keyBox').value); $('copyKey').textContent = 'Copied ✓'; } catch { $('keyBox').select(); } };
-  } catch (e) {
-    $('keyOut').textContent = 'Could not make a key: ' + e.message;
-  } finally { btn.disabled = false; btn.textContent = 'Generate a new key'; }
-});
+// Back-to-top button for the long release list
+const toTop = $('toTop');
+addEventListener('scroll', () => { toTop.hidden = scrollY < 600; }, { passive: true });
+toTop.addEventListener('click', () => scrollTo({ top: 0, behavior: 'smooth' }));
 
 load();
-loadVisits();

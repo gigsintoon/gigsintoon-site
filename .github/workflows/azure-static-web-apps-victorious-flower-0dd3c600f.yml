@@ -19,6 +19,10 @@ jobs:
         with:
           submodules: true
           lfs: false
+      - name: Record site size for the Settings page
+        run: |
+          echo "{\"bytes\": $(du -sb web | cut -f1), \"files\": $(find web -type f | wc -l), \"apiBytes\": $(du -sb --exclude=node_modules api | cut -f1), \"commit\": \"${GITHUB_SHA::7}\", \"builtAt\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}" > web/build-info.json
+          cat web/build-info.json
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1

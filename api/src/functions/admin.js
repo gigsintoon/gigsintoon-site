@@ -400,8 +400,8 @@ app.http('adminReleaseImages', {
 // green    Posted + on the Sonos playlist
 // red      DoNotPost
 //
-// A change made here is saved straight away and also remembered in import/status-overrides.json, so a later
-// re-import from the spreadsheet doesn't undo it. Once the change has been copied into the spreadsheet the
+// A change made here is saved straight away and also remembered, so a later
+// re-import from the spreadsheet doesn't undo it (kept in music.StatusOverrides). Once the change has been copied into the spreadsheet the
 // override can be cleared (DELETE /api/manage/status-overrides).
 
 const COLOURS = {
@@ -414,17 +414,13 @@ const COLOURS = {
 function importContainer() {
   return BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING).getContainerClient('import');
 }
-const OVERRIDES = 'status-overrides.json';
-
+// Overrides are kept in music.StatusOverrides
 async function readOverrides() {
-  const blob = importContainer().getBlockBlobClient(OVERRIDES);
-  if (!(await blob.exists())) return {};
-  return JSON.parse((await blob.downloadToBuffer()).toString('utf8') || '{}');
-}
-async function writeOverrides(o) {
-  const text = JSON.stringify(o, null, 1);
-  await importContainer().getBlockBlobClient(OVERRIDES)
-    .upload(text, Buffer.byteLength(text), { blobHTTPHeaders: { blobContentType: 'application/json' } });
+  const rows = await query(`SELECT ReleaseId, Band, Title, CONVERT(char(10), ReleaseDate, 23) AS ReleaseDate, Colour, Status, OnSonos, ChangedAt FROM music.StatusOverrides`);
+  const o = {};
+  for (const r of rows) o[r.ReleaseId] = { id: r.ReleaseId, band: r.Band, title: r.Title, date: r.ReleaseDate, colour: r.Colour,
+    status: r.Status, sonos: !!r.OnSonos, at: r.ChangedAt };
+  return o;
 }
 
 async function applyStatusOverrides() {
@@ -486,10 +482,12 @@ app.http('adminStatus', {
       if (!rows.length) return json({ ok: false, error: 'Release not found.' }, 404);
       const band = (await query(`SELECT b.Name FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE r.ReleaseId = @id`,
         { id: [sql.Int, id] }))[0].Name;
-      const o = await readOverrides();
-      o[id] = { id, band, title: rows[0].Title, date: rows[0].ReleaseDate, colour, status: c.status, sonos: c.sonos,
-                at: new Date().toISOString() };
-      await writeOverrides(o);
+      await query(`MERGE music.StatusOverrides AS t USING (SELECT @id AS ReleaseId) x ON t.ReleaseId = x.ReleaseId
+        WHEN MATCHED THEN UPDATE SET Band = @b, Title = @t, ReleaseDate = @d, Colour = @c, Status = @s, OnSonos = @so, ChangedAt = SYSUTCDATETIME()
+        WHEN NOT MATCHED THEN INSERT (ReleaseId, Band, Title, ReleaseDate, Colour, Status, OnSonos, ChangedAt)
+          VALUES (@id, @b, @t, @d, @c, @s, @so, SYSUTCDATETIME());`, {
+        id: [sql.Int, id], b: [sql.NVarChar(200), band], t: [sql.NVarChar(400), rows[0].Title], d: [sql.Date, rows[0].ReleaseDate],
+        c: [sql.NVarChar(10), colour], s: [sql.NVarChar(20), c.status], so: [sql.Bit, c.sonos] });
       return json({ ok: true, id, colour, status: c.status });
     } catch (err) {
       return failDetail(context, err);
@@ -506,12 +504,11 @@ app.http('adminStatusOverrides', {
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
     try {
-      const o = await readOverrides();
-      if (request.method === 'GET') return json({ overrides: Object.values(o) });
-      const ids = (request.query.get('ids') || '').split(',').filter(Boolean);
-      if (ids.length) ids.forEach(i => delete o[i]); else for (const k of Object.keys(o)) delete o[k];
-      await writeOverrides(o);
-      return json({ ok: true, remaining: Object.keys(o).length });
+      if (request.method === 'GET') return json({ overrides: Object.values(await readOverrides()) });
+      const ids = (request.query.get('ids') || '').split(',').map(Number).filter(Number.isInteger);
+      if (ids.length) await query(`DELETE music.StatusOverrides WHERE ReleaseId IN (SELECT value FROM OPENJSON(@j))`, { j: [sql.NVarChar(sql.MAX), JSON.stringify(ids)] });
+      else await query(`DELETE music.StatusOverrides`);
+      return json({ ok: true, remaining: Object.keys(await readOverrides()).length });
     } catch (err) {
       return failDetail(context, err);
     }
@@ -533,6 +530,60 @@ app.http('adminCharts', {
           FROM music.Releases r JOIN OPENJSON(@j) WITH (id INT '$.id', pos INT '$.pos') j ON j.id = r.ReleaseId
          WHERE r.ChartPosition IS NULL; SELECT @@ROWCOUNT AS n;`, { j: [sql.NVarChar(sql.MAX), JSON.stringify(ups)] });
       return json({ ok: true, updated: r[0] ? r[0].n : null });
+    } catch (err) { return failDetail(context, err); }
+  }
+});
+
+// GET /api/manage/site-info -> sizes and counts for the Settings page (cached 10 minutes)
+let siteInfoCache = null, siteInfoAt = 0;
+app.http('adminSiteInfo', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'manage/site-info',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      if (siteInfoCache && Date.now() - siteInfoAt < 10 * 60 * 1000 && !request.query.get('fresh')) return json(siteInfoCache);
+      const out = {};
+      try {
+        const t = await query(`SELECT s.name + '.' + t.name AS TableName, SUM(CASE WHEN p.index_id IN (0, 1) THEN p.row_count ELSE 0 END) AS Rows,
+                                      SUM(p.reserved_page_count) * 8 AS KB
+                                 FROM sys.dm_db_partition_stats p JOIN sys.tables t ON t.object_id = p.object_id JOIN sys.schemas s ON s.schema_id = t.schema_id
+                                GROUP BY s.name, t.name ORDER BY KB DESC`);
+        out.db = { kb: t.reduce((a, r) => a + r.KB, 0), tables: t };
+      } catch (e) {
+        const t = await query(`SELECT 'music.Releases' AS TableName, COUNT(*) AS Rows FROM music.Releases UNION ALL SELECT 'music.Bands', COUNT(*) FROM music.Bands
+          UNION ALL SELECT 'music.Gigs', COUNT(*) FROM music.Gigs UNION ALL SELECT 'music.Images', COUNT(*) FROM music.Images`);
+        out.db = { kb: null, tables: t, note: 'Run db/004-move-files-to-sql.sql to see the database size.' };
+      }
+      const svc = BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING);
+      const tally = async (name) => {
+        const c = { files: 0, bytes: 0, images: 0, imageBytes: 0, folders: {} };
+        for await (const b of svc.getContainerClient(name).listBlobsFlat()) {
+          const n = b.properties.contentLength || 0; c.files++; c.bytes += n;
+          if (/\.(jpe?g|png|gif|webp|jfif)$/i.test(b.name)) { c.images++; c.imageBytes += n; }
+          const top = b.name.includes('/') ? b.name.split('/')[0] : '(top level)';
+          const f = c.folders[top] || (c.folders[top] = { files: 0, bytes: 0 }); f.files++; f.bytes += n;
+        }
+        return c;
+      };
+      out.media = await tally('media');
+      out.import = await tally('import');
+      const [c] = await query(`SELECT (SELECT COUNT(*) FROM music.Releases) AS Releases, (SELECT COUNT(*) FROM music.Bands) AS Bands,
+        (SELECT COUNT(*) FROM music.Gigs) AS Gigs, (SELECT COUNT(*) FROM music.Images) AS ImageRows,
+        (SELECT COUNT(*) FROM music.Releases WHERE ChartPosition IS NOT NULL) AS Charted`);
+      out.counts = c;
+      try {
+        const [v] = await query(`DECLARE @today DATE = CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE);
+          SELECT (SELECT ISNULL(SUM(Views),0) FROM music.PageViews WHERE ViewDate = @today) AS Today,
+                 (SELECT ISNULL(SUM(Views),0) FROM music.PageViews WHERE ViewDate >= DATEADD(day, -6, @today)) AS Week,
+                 (SELECT ISNULL(SUM(Views),0) FROM music.PageViews WHERE ViewDate >= DATEADD(day, -29, @today)) AS Month,
+                 (SELECT ISNULL(SUM(Views),0) FROM music.PageViews) AS AllTime`);
+        out.traffic = v;
+      } catch { out.traffic = null; }
+      out.at = new Date().toISOString();
+      siteInfoCache = out; siteInfoAt = Date.now();
+      return json(out);
     } catch (err) { return failDetail(context, err); }
   }
 });

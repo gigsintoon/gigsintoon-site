@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Visitors – Gigs in toon</title>
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="stylesheet" href="/styles.css?v=202611122246">
+  <link rel="stylesheet" href="/admin.css?v=202611122246">
+</head>
+<body>
+  <header class="top">
+    <div class="wrap bar">
+      <a class="brand" href="/">Gigs in <span>toon</span></a>
+      <nav class="nav"><a href="/">On this day</a><a href="/?page=favourites">Favourites</a><a href="/?page=week">This week</a><a href="/?page=years">Years</a><a href="/?page=stats">Stats</a><a href="/?page=guess">Guess the cover</a><a href="/about">About</a><a href="/contact">Contact</a></nav>
+    </div>
+    <div id="adminBar" class="adminbar" data-static></div>
+  </header>
+  <script src="/adminbar.js?v=202611122246"></script>
+  <main class="wrap">
+    <div class="listhead"><h1>Visitors</h1>
+      <div class="years" id="range"><button data-d="7">7 days</button><button data-d="30" class="on">30 days</button><button data-d="90">90 days</button><button data-d="365">Year</button></div></div>
+    <p class="muted help">Page views counted without cookies. Your own visits while signed in aren't counted.</p>
+    <div id="visitBody" class="visits muted">Loading…</div>
+  </main>
+<script>
+const $ = id => document.getElementById(id);
+function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
+</script>
+<script>
+async function loadVisits(days = 30) {
+  $('visitBody').textContent = 'Loading…';
+  try {
+    const v = await (await fetch('/api/manage/visits?days=' + days)).json();
+    const total = v.byDay.reduce((s, d) => s + d.Views, 0), mob = v.byDay.reduce((s, d) => s + d.Mobile, 0);
+    const max = Math.max(1, ...v.byDay.map(d => d.Views));
+    const bars = v.byDay.map(d => `<div class="vbar" title="${d.ViewDate.slice(0, 10)}: ${d.Views}"><i style="height:${Math.round(d.Views / max * 100)}%"></i></div>`).join('');
+    const best = v.byDay.reduce((a, d) => d.Views > (a ? a.Views : 0) ? d : a, null);
+    const list = (rows, k) => rows.length ? '<ol>' + rows.map(r => `<li>${esc(r[k] || '(direct)')} <span class="muted">${r.Views}</span></li>`).join('') + '</ol>' : '<p class="muted">None yet.</p>';
+    $('visitBody').innerHTML = total
+      ? `<div class="tiles"><div><b>${total}</b><span>page views</span></div><div><b>${Math.round(total / Math.max(1, v.byDay.length))}</b><span>a day on average</span></div>
+           <div><b>${Math.round(mob / total * 100)}%</b><span>on phones</span></div><div><b>${best ? best.Views : 0}</b><span>busiest day${best ? ' · ' + new Date(best.ViewDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span></div></div>
+         <div class="vbars">${bars}</div>
+         <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div></div>`
+      : '<p>No visits counted in this period yet.</p>';
+  } catch { $('visitBody').textContent = 'Couldn\'t load visitor numbers.'; }
+}
+$('range').addEventListener('click', e => { const b = e.target.closest('[data-d]'); if (!b) return;
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('on', x === b)); loadVisits(+b.dataset.d); });
+loadVisits();
+</script>
+</body>
+</html>

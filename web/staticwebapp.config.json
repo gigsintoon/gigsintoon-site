@@ -71,6 +71,38 @@
       ]
     },
     {
+      "route": "/admin/visitors",
+      "rewrite": "/visitors.html",
+      "allowedRoles": [
+        "owner"
+      ]
+    },
+    {
+      "route": "/admin/settings",
+      "rewrite": "/settings.html",
+      "allowedRoles": [
+        "owner"
+      ]
+    },
+    {
+      "route": "/visitors.*",
+      "allowedRoles": [
+        "owner"
+      ]
+    },
+    {
+      "route": "/settings.*",
+      "allowedRoles": [
+        "owner"
+      ]
+    },
+    {
+      "route": "/build-info.json",
+      "allowedRoles": [
+        "owner"
+      ]
+    },
+    {
       "route": "/admin",
       "rewrite": "/admin.html",
       "allowedRoles": [

@@ -22,7 +22,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
   <meta name="theme-color" content="#111214">
-  <link rel="stylesheet" href="/styles.css?v=202611122158">
+  <link rel="stylesheet" href="/styles.css?v=202611122246">
 </head>
 <body>
   <header class="top">
@@ -49,15 +49,7 @@
       </nav>
       <a id="signIn" class="signout" href="/login" hidden>Sign in</a>
     </div>
-    <div id="adminBar" class="adminbar" hidden>
-      <div class="wrap">
-        <span>Admin</span>
-        <a href="/admin">Release list</a>
-        <a href="/admin/todo">To do</a>
-        <button id="visitorToggle" type="button" class="ghost"></button>
-        <a class="signout" href="/logout">Sign out</a>
-      </div>
-    </div>
+    <div id="adminBar" class="adminbar" hidden></div>
   </header>
 
   <main class="wrap">
@@ -131,6 +123,7 @@
     <a href="https://x.com/gigsintoon" rel="noopener">X</a><a href="https://www.instagram.com/gigsintoon" rel="noopener">Instagram</a><a href="https://bsky.app/profile/gigsintoon.bsky.social" rel="noopener">Bluesky</a>
   </div></footer>
   <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
-  <script src="/app.js?v=202611122158"></script>
+  <script src="/adminbar.js?v=202611122246"></script>
+  <script src="/app.js?v=202611122246"></script>
 </body>
 </html>
