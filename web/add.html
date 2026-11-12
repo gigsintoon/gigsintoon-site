@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Add a release – Gigs in toon</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <header class="top"><div class="wrap bar">
+    <a class="brand" href="/">Gigs in <span>toon</span></a>
+    <nav class="nav"><a href="/admin">Release list</a><a class="on" href="/admin/add">Add release</a><a href="/admin/messages">Messages</a></nav>
+  </div></header>
+  <main class="wrap">
+    <h1>Add a release</h1>
+    <p class="muted help">Saves straight to the site. Anything added here is also listed under “Waiting for the spreadsheet” below,
+      so it can be copied into your spreadsheet and laptop folders.</p>
+    <form id="addf" class="form grid2">
+      <label>Band <input name="band" list="bandlist" required autocomplete="off"><datalist id="bandlist"></datalist></label>
+      <label>Shown as <span class="muted">(optional, e.g. "Band feat. Someone")</span> <input name="artistDisplay"></label>
+      <label>Title <input name="title" required></label>
+      <label>Release date <input name="date" type="date" required></label>
+      <label>Type
+        <select name="type"><option>Album</option><option>Single</option><option>EP</option><option>Live</option><option>Compilation</option><option>Other</option></select></label>
+      <label>Colour
+        <select name="colour"><option value="none">None (not posted)</option><option value="orange">Orange (drafted/scheduled)</option><option value="green">Green (posted + Sonos)</option><option value="red">Red (don't post)</option></select></label>
+      <label>UK chart position <input name="chart" type="number" min="1" max="200"></label>
+      <label>Chart note <input name="chartNote" placeholder="e.g. Indie chart #3"></label>
+      <label>Label <input name="label"></label>
+      <label>Tag notes <input name="tagNotes" placeholder="e.g. tag @label"></label>
+      <label class="full">Write-up
+        <textarea name="writeUp" rows="6" placeholder="On this day in 1997, @band released …"></textarea>
+        <span class="muted" id="wcount"></span></label>
+      <fieldset class="full covers">
+        <legend>Covers</legend>
+        <label>Cover <input type="file" name="Cover" accept="image/*"></label>
+        <label>CD1 <input type="file" name="CD1" accept="image/*"></label>
+        <label>CD2 <input type="file" name="CD2" accept="image/*"></label>
+        <div id="previews" class="previews"></div>
+      </fieldset>
+      <div class="full"><button class="btn" type="submit">Save release</button> <span id="astatus" class="muted" role="status"></span></div>
+    </form>
+    <h2>Waiting for the spreadsheet</h2>
+    <div id="pending" class="muted">Loading…</div>
+  </main>
+  <script src="/add.js"></script>
+</body>
+</html>

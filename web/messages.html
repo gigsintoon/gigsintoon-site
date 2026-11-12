@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Messages – Gigs in toon</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+  <header class="top"><div class="wrap bar">
+    <a class="brand" href="/">Gigs in <span>toon</span></a>
+    <nav class="nav"><a href="/admin">Release list</a><a href="/admin/add">Add release</a><a class="on" href="/admin/messages">Messages</a></nav>
+  </div></header>
+  <main class="wrap">
+    <h1>Messages</h1>
+    <div id="mlist" class="muted">Loading…</div>
+  </main>
+  <script>
+    const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+    async function load() {
+      const { messages } = await (await fetch('/api/manage/messages')).json();
+      document.getElementById('mlist').innerHTML = messages.length ? messages.map(m => `
+        <div class="msg ${m.read ? 'read' : ''}">
+          <div class="mhead"><b>${esc(m.name || 'Anonymous')}</b> ${m.email ? `&lt;<a href="mailto:${esc(m.email)}">${esc(m.email)}</a>&gt;` : ''}
+            <span class="muted">· ${esc(m.topic)} · ${new Date(m.at).toLocaleString('en-GB')}</span>
+            <button data-id="${esc(m.id)}" data-read="${m.read ? 0 : 1}">${m.read ? 'Mark unread' : 'Mark read'}</button></div>
+          <div class="mbody">${esc(m.message)}</div></div>`).join('') : 'No messages yet.';
+    }
+    document.addEventListener('click', async e => {
+      const b = e.target.closest('[data-id]'); if (!b) return;
+      await fetch('/api/manage/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: b.dataset.id, read: b.dataset.read === '1' }) });
+      load();
+    });
+    load();
+  </script>
+</body>
+</html>
