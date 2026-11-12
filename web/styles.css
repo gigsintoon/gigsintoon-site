@@ -95,7 +95,7 @@ h2{margin:18px 0 4px}h3{margin:24px 0 4px}
 .foot{border-top:1px solid var(--line);margin-top:40px;padding:20px 0 24px;font-size:14px;color:var(--muted);background:var(--panel)}
 .foot .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;justify-content:center;text-align:center}
 .foot .wrap > span:first-child{flex-basis:100%}
-.foot a{color:var(--muted);text-decoration:none}.foot a:hover{color:var(--text);text-decoration:underline}
+.foot a{color:var(--accent);text-decoration:none}.foot a:hover{text-decoration:underline}
 body{min-height:100vh;display:flex;flex-direction:column}body > main{flex:1 0 auto;width:100%;box-sizing:border-box}
 .prose{max-width:760px;padding-top:24px;padding-bottom:20px}.prose p,.prose li{color:#d6d9dc}.prose li{margin:4px 0}
 .teaser .cover{overflow:hidden}.teaser .cover img{object-fit:cover}
