@@ -128,3 +128,4 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .lbform{flex-wrap:wrap;margin-top:14px;padding:12px;border:1px solid var(--accent);border-radius:10px}.lbform p{flex-basis:100%;margin:0 0 6px}
 .remember{background:linear-gradient(135deg,#1b1d21,#16171a);border:1px solid var(--line);border-left:4px solid #8a8f98;border-radius:12px;padding:14px 18px;margin:12px 0}
 .remember .rk{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.remember h3{margin:4px 0 6px;font-size:1.35rem}.remember p{margin:4px 0}
+.gplay{margin:8px 0 0}.gplay a{color:var(--accent);font-weight:600}

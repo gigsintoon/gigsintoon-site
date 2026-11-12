@@ -123,7 +123,8 @@ function gigCard(g) {
     <div><div class="year">Gig memory · ${esc(g.GigYear)}</div>
       <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at <button class="bandlink" data-venue="${esc(g.Venue)}">${esc(g.Venue)}</button>` : ''}
       ${g.TourName ? `<div class="meta">${esc(g.TourName)}</div>` : ''}
-      ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}</div>
+      ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}
+      ${g.PlaylistUrl ? `<p class="gplay"><a href="${esc(g.PlaylistUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🎧 Listen to the setlist on Deezer</a></p>` : ''}</div>
   </div>`;
 }
 

@@ -141,6 +141,7 @@ app.http('onThisDay', {
         { m: [sql.Int, month], d: [sql.Int, day] });
       const handles = handlesFor(await handleMap(), [...releases, ...gigs].map(x => x.WriteUp));
       const remembering = await rememberingFor(month, day);
+      if (gigs.length) { const ex = await readBlobJson('gig-extras.json', {}); gigs.forEach(g => { const x = ex[g.GigId]; if (x && x.playlistUrl) g.PlaylistUrl = x.playlistUrl; }); }
       return json({ month, day, releases, gigs, teasers, gigTeasers, remembering, handles, admin: all });
     } catch (err) {
       return fail(context, err);
