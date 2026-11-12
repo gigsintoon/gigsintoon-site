@@ -526,6 +526,7 @@ app.http('guess', {
       if (request.method === 'POST') {
         const b = await request.json().catch(() => ({}));
         const boardPath = `guess/${week}-board.json`;
+        if (b.resetTally && isOwner(request)) { await writeBlobJson(`guess/${week}.json`, { tries: 0, correct: 0 }); await writeBlobJson(boardPath, []); return json({ ok: true }); }
         if (b.board) {
           const list = await readBlobJson(boardPath, []);
           if (b.remove && isOwner(request)) {
