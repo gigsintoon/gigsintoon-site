@@ -286,7 +286,7 @@ async function showGuess() {
           <p class="muted" style="font-size:14px">A new cover every Monday. The answer's revealed the week after.</p>
         </div>
       </div>
-      ${last ? `<h2>Last week's answer</h2>
+      ${last && last.tally.tries ? `<h2>Last week's answer</h2>
         <div class="fav"><img src="${esc(last.cover)}" alt="" loading="lazy"><div><button class="artist" data-band="${last.bandId}">${esc(last.artist)}</button>
         <div class="title">${esc(last.title)} (${last.year})</div><div class="meta">${last.tally.correct} of ${last.tally.tries} guessed it</div></div></div>` : ''}`;
     $('guessForm').addEventListener('submit', async e => {

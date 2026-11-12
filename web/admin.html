@@ -37,6 +37,13 @@
       <h2>Visitors <span class="muted" style="font-size:14px;font-weight:400">(last 30 days, your own visits aren't counted)</span></h2>
       <div id="visitBody" class="muted">Loading…</div>
     </section>
+    <section class="visits">
+      <h2>Weekly email</h2>
+      <p class="muted help">Every Monday a summary (visitors, new messages, your to-do list) is collected by GitHub and emailed to you.
+        It needs a private key shared between the site and GitHub – generate it here and paste it into GitHub yourself, so it never passes through anyone else.</p>
+      <button id="genKey" type="button">Generate a new key</button>
+      <div id="keyOut" class="muted" style="margin-top:10px"></div>
+    </section>
   </main>
   <script src="/admin.js?v=202611121441"></script>
 </body>

@@ -116,5 +116,14 @@ async function loadVisits() {
   } catch { $('visitBody').textContent = 'Couldn\'t load visitor numbers.'; }
 }
 
+$('genKey').addEventListener('click', async () => {
+  if (!confirm('Make a new key? Any old key in GitHub will stop working until you paste this one in.')) return;
+  const r = await (await fetch('/api/manage/report-key', { method: 'POST' })).json();
+  $('keyOut').innerHTML = r.ok ? `<p>Your key (shown once – copy it now):</p><input readonly style="width:100%;max-width:560px;font-family:monospace" value="${esc(r.key)}" onclick="this.select()">
+    <ol><li>Open <a href="https://github.com/gigsintoon/gigsintoon-site/settings/secrets/actions/new" target="_blank" rel="noopener">GitHub → gigsintoon-site → Settings → Secrets → Actions → New secret</a></li>
+    <li>Name: <b>REPORT_KEY</b>, Secret: paste the key, then <b>Add secret</b>.</li>
+    <li>Optional test: <a href="https://github.com/gigsintoon/gigsintoon-site/actions/workflows/weekly-report.yml" target="_blank" rel="noopener">Actions → Weekly site report → Run workflow</a>.</li></ol>` : 'Could not make a key.';
+});
+
 load();
 loadVisits();
