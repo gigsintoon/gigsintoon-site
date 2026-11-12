@@ -86,6 +86,17 @@ app.http('onThisDay', {
           WHERE g.GigMonth = @m AND g.GigDay = @d ${all ? '' : `AND g.Status = 'Posted'`}
           ORDER BY g.GigDate DESC`,
         { m: [sql.Int, month], d: [sql.Int, day] });
+      // A gig memory whose day hasn't come round yet this year: visitors get a blurred ticket and a clue instead
+      let gigTeasers = [];
+      if (!all) {
+        const t = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date()));
+        const reached = month < t.getUTCMonth() + 1 || (month === t.getUTCMonth() + 1 && day <= t.getUTCDate());
+        if (!reached) {
+          gigTeasers = gigs.map(g => ({ Id: g.GigId, GigYear: g.GigYear, Letter: (g.Bands || '?').replace(/^the\s+/i, '').charAt(0).toUpperCase(),
+                                        Acts: (g.Bands || '').split(' / ').length, HasImage: !!g.ImageUrl }));
+          gigs.length = 0;
+        }
+      }
       // Visitors looking at a day that hasn't come round yet get clues instead: the year, the type,
       // the band's first letter and a blurred cover (served through /api/teaser so the file name gives nothing away).
       const teasers = all ? [] : await query(
@@ -97,7 +108,7 @@ app.http('onThisDay', {
           ORDER BY r.ReleaseYear DESC`,
         { m: [sql.Int, month], d: [sql.Int, day] });
       const handles = handlesFor(await handleMap(), [...releases, ...gigs].map(x => x.WriteUp));
-      return json({ month, day, releases, gigs, teasers, handles, admin: all });
+      return json({ month, day, releases, gigs, teasers, gigTeasers, handles, admin: all });
     } catch (err) {
       return fail(context, err);
     }
@@ -222,6 +233,28 @@ app.http('teaser', {
       const rows = await query(
         `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Releases r ON r.ReleaseId = i.ReleaseId
           WHERE r.ReleaseId = @id AND r.Status <> 'DoNotPost' ORDER BY i.SortOrder, i.ImageId`,
+        { id: [sql.Int, parseInt(request.params.id, 10)] });
+      if (!rows.length) return { status: 404 };
+      const r = await fetch(rows[0].PublicUrl);
+      if (!r.ok) return { status: 404 };
+      return { status: 200, body: Buffer.from(await r.arrayBuffer()),
+               headers: { 'Content-Type': r.headers.get('content-type') || 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };
+    } catch (err) {
+      return fail(context, err);
+    }
+  }
+});
+
+// GET /api/gigteaser/5 -> a gig's ticket photo without its file name (shown blurred)
+app.http('gigTeaser', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'gigteaser/{id:int}',
+  handler: async (request, context) => {
+    try {
+      const rows = await query(
+        `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Gigs g ON g.GigId = i.GigId
+          WHERE g.GigId = @id AND g.Status = 'Posted' ORDER BY i.SortOrder, i.ImageId`,
         { id: [sql.Int, parseInt(request.params.id, 10)] });
       if (!rows.length) return { status: 404 };
       const r = await fetch(rows[0].PublicUrl);

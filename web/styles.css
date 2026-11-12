@@ -69,6 +69,7 @@ h2{margin:18px 0 4px}h3{margin:24px 0 4px}
 .social{display:flex;gap:6px;align-items:center}.nav + .social{margin-left:auto}.social a{display:flex;width:34px;height:34px;align-items:center;justify-content:center;border-radius:8px;color:var(--muted)}
 .social a:hover{color:var(--text);background:var(--line)}.social svg{width:18px;height:18px;fill:currentColor}
 .aboutpics{margin:20px 0;display:grid;grid-template-columns:1fr 1fr;gap:10px}.aboutpics img{width:100%;border-radius:8px}.aboutpics figcaption{grid-column:1/-1;color:var(--muted);font-size:14px}
+.gig.teaser{cursor:default;border-style:dashed}.tblur{width:120px;flex:none;overflow:hidden;border-radius:6px}.tblur img{width:100%;filter:blur(10px);transform:scale(1.15)}
 .foot{border-top:1px solid var(--line);margin-top:40px;padding:18px 0 28px;font-size:14px;color:var(--muted)}
 .foot .wrap{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
 .foot a{color:var(--muted)}.foot a:hover{color:var(--text)}

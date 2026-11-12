@@ -137,6 +137,15 @@ async function showGig(id) {
   } catch (e) { $('gigBody').innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
 }
 
+function gigTeaserCard(t) {
+  return `<div class="gig teaser">
+    ${t.HasImage ? `<div class="tblur"><img src="/api/gigteaser/${t.Id}" alt="Blurred gig ticket – can you guess it?" loading="lazy"></div>` : ''}
+    <div><div class="year">Gig memory · ${esc(t.GigYear)}</div>
+      <div>Coming up: a gig from ${esc(t.GigYear)}${t.Acts > 1 ? ` (a ${t.Acts}-band bill)` : ''} headlined by a band beginning with <strong>${esc(t.Letter)}</strong>.</div>
+      <div class="meta">Can you guess who? Check back on the day.</div></div>
+  </div>`;
+}
+
 function showOnly(id) {
   for (const v of ['dayView', 'bandView', 'favView', 'gigView']) $(v).hidden = v !== id;
   document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
@@ -162,7 +171,7 @@ async function showDay(date) {
     $('daySummary').textContent = n
       ? `${n} release${n === 1 ? '' : 's'} on this day` + (nNew ? ` · ${nNew} new this year` : '')
       : '';
-    $('gigs').innerHTML = data.gigs.map(gigCard).join('');
+    $('gigs').innerHTML = data.gigs.map(gigCard).join('') + (data.gigTeasers || []).map(gigTeaserCard).join('');
     const teasers = data.teasers || [];
     $('releases').innerHTML = (n ? data.releases.map(r => releaseCard(r, { viewYear, isToday })).join('') : '')
       + teasers.map(teaserCard).join('')
