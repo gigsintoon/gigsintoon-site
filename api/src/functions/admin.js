@@ -33,18 +33,18 @@ DECLARE @rows TABLE (
   RowNo INT, Band NVARCHAR(200), ArtistDisplay NVARCHAR(300), Title NVARCHAR(400),
   ReleaseType NVARCHAR(20), ReleaseDate DATE, ChartPosition INT, ChartNote NVARCHAR(200),
   Label NVARCHAR(200), WriteUp NVARCHAR(MAX), TagNotes NVARCHAR(500), Status NVARCHAR(20),
-  OnSonos BIT, Images NVARCHAR(MAX));
+  OnSonos BIT, Images NVARCHAR(MAX), Region NVARCHAR(10));
 
 INSERT INTO @rows
 SELECT j.[key] + 0, v.Band, v.ArtistDisplay, v.Title, v.ReleaseType, v.ReleaseDate, v.ChartPosition,
-       v.ChartNote, v.Label, v.WriteUp, v.TagNotes, v.Status, v.OnSonos, v.Images
+       v.ChartNote, v.Label, v.WriteUp, v.TagNotes, v.Status, v.OnSonos, v.Images, v.Region
 FROM OPENJSON(@payload) j
 CROSS APPLY OPENJSON(j.value) WITH (
   Band NVARCHAR(200) '$.band', ArtistDisplay NVARCHAR(300) '$.artistDisplay', Title NVARCHAR(400) '$.title',
   ReleaseType NVARCHAR(20) '$.type', ReleaseDate DATE '$.date', ChartPosition INT '$.chart',
   ChartNote NVARCHAR(200) '$.chartNote', Label NVARCHAR(200) '$.label', WriteUp NVARCHAR(MAX) '$.writeUp',
   TagNotes NVARCHAR(500) '$.tagNotes', Status NVARCHAR(20) '$.status', OnSonos BIT '$.onSonos',
-  Images NVARCHAR(MAX) '$.images' AS JSON) v;
+  Images NVARCHAR(MAX) '$.images' AS JSON, Region NVARCHAR(10) '$.region') v;
 
 INSERT INTO music.Bands (Name)
 SELECT DISTINCT r.Band FROM @rows r
@@ -58,11 +58,11 @@ ON t.BandId = s.BandId AND t.Title = s.Title AND t.ReleaseDate = s.ReleaseDate
 WHEN MATCHED THEN UPDATE SET
   ArtistDisplay = s.ArtistDisplay, ReleaseType = s.ReleaseType, ChartPosition = s.ChartPosition,
   ChartNote = s.ChartNote, Label = COALESCE(s.Label, t.Label), WriteUp = COALESCE(s.WriteUp, t.WriteUp),
-  TagNotes = s.TagNotes, Status = s.Status, OnSonosPlaylist = s.OnSonos, UpdatedAt = SYSUTCDATETIME()
+  TagNotes = s.TagNotes, Status = s.Status, OnSonosPlaylist = s.OnSonos, ReleaseRegion = s.Region, UpdatedAt = SYSUTCDATETIME()
 WHEN NOT MATCHED THEN INSERT
-  (BandId, ArtistDisplay, Title, ReleaseType, ReleaseDate, ChartPosition, ChartNote, Label, WriteUp, TagNotes, Status, OnSonosPlaylist)
+  (BandId, ArtistDisplay, Title, ReleaseType, ReleaseDate, ChartPosition, ChartNote, Label, WriteUp, TagNotes, Status, OnSonosPlaylist, ReleaseRegion)
   VALUES (s.BandId, s.ArtistDisplay, s.Title, s.ReleaseType, s.ReleaseDate, s.ChartPosition, s.ChartNote,
-          s.Label, s.WriteUp, s.TagNotes, s.Status, s.OnSonos)
+          s.Label, s.WriteUp, s.TagNotes, s.Status, s.OnSonos, s.Region)
 OUTPUT s.RowNo, inserted.ReleaseId INTO @map;
 
 -- (the web login has no DELETE permission, so images are upserted rather than replaced)
@@ -617,6 +617,32 @@ app.http('adminFixNames', {
         bands.push(`${from} → ${to}: ${r[0].result}`);
       }
       return json({ ok: true, titles: t, bands });
+    } catch (err) { return failDetail(context, err); }
+  }
+});
+
+// POST /api/manage/release-fix (owner) { fixes: [{ id, type?, date?, region?, chart? }] } — corrects single fields on releases
+// (region: 'UK' | 'US' | 'Japan' | 'Australia' | null; chart: number or null to clear)
+app.http('adminReleaseFix', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/release-fix',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const b = await request.json(); const done = [];
+      for (const f of (b.fixes || [])) {
+        if (!Number.isInteger(f.id)) continue;
+        const sets = [], p = { id: [sql.Int, f.id] };
+        if (f.type) { sets.push('ReleaseType = @type'); p.type = [sql.NVarChar(20), f.type]; }
+        if (f.date) { sets.push('ReleaseDate = @date'); p.date = [sql.Date, f.date]; }
+        if ('region' in f) { sets.push('ReleaseRegion = @region'); p.region = [sql.NVarChar(10), f.region || null]; }
+        if ('chart' in f) { sets.push('ChartPosition = @chart'); p.chart = [sql.Int, f.chart || null]; }
+        if (!sets.length) continue;
+        const r = await query(`UPDATE music.Releases SET ${sets.join(', ')}, UpdatedAt = SYSUTCDATETIME() WHERE ReleaseId = @id; SELECT @@ROWCOUNT AS n`, p);
+        done.push({ id: f.id, ok: !!(r[0] && r[0].n) });
+      }
+      return json({ ok: true, done });
     } catch (err) { return failDetail(context, err); }
   }
 });

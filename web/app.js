@@ -87,7 +87,7 @@ function releaseCard(r, { showDate = false, viewYear = null, isToday = false } =
       <div class="year">${esc(when)} ${flag}</div>
       <button class="artist" data-band="${r.BandId}">${esc(r.Artist)}</button>
       <div class="title">${esc(r.Title)}</div>
-      <div class="meta">${esc([isMoment(r) ? 'Moment in time' : r.ReleaseType, chart, note, r.Label].filter(Boolean).join(' · '))}</div>
+      <div class="meta">${esc([isMoment(r) ? 'Moment in time' : r.ReleaseType, r.ReleaseRegion ? `${r.ReleaseRegion} release` : null, chart, note, r.Label].filter(Boolean).join(' · '))}</div>
       ${r.WriteUp ? `<div class="writeup">${renderWriteUp(r.WriteUp)}</div>` : ''}
       ${listenLinks(r)}
       ${status ? `<div class="badges">${status}</div>` : ''}
@@ -563,7 +563,7 @@ $('datePick').onchange = () => { const v = $('datePick').value; if (v) showDay(n
 $('backBtn').onclick = () => showDay(current);
 $('navDay').onclick = e => { e.preventDefault(); showDay(current); };
 $('navFav').onclick = e => { e.preventDefault(); showFavourites(); };
-$('navYears').onclick = e => { e.preventDefault(); showYear(); };
+// Years page hidden from the menu for now (to-do: streamline it); ?page=years still works
 $('navStats').onclick = e => { e.preventDefault(); showStats(); };
 $('navWeek').onclick = e => { e.preventDefault(); showWeek(); };
 $('navGuess').onclick = e => { e.preventDefault(); showGuess(); };

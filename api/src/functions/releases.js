@@ -60,7 +60,7 @@ const VISIBLE = `(r.Status = 'Posted' OR (r.Status = 'Drafted' AND ${DAY_REACHED
 const RELEASE_COLUMNS = `
   r.ReleaseId, r.ReleaseYear, r.ReleaseMonth, r.ReleaseDay, r.ReleaseDate,
   COALESCE(r.ArtistDisplay, b.Name) AS Artist, b.BandId,
-  r.Title, r.ReleaseType, r.ChartPosition, r.ChartNote, r.Label,
+  r.Title, r.ReleaseType, r.ChartPosition, r.ChartNote, r.Label, r.ReleaseRegion,
   r.WriteUp,
   -- an orange (scheduled) post counts as posted once its day has come round
   CASE WHEN r.Status = 'Drafted' AND ${DAY_REACHED} THEN 'Posted' ELSE r.Status END AS Status,
@@ -613,7 +613,7 @@ app.http('sitemap', {
   handler: async (request, context) => {
     try {
       const base = 'https://www.gigsintoon.co.uk';
-      const urls = ['/', '/about', '/contact', '/?page=favourites', '/?page=years', '/?page=stats', '/?page=guess'];
+      const urls = ['/', '/about', '/contact', '/?page=favourites', '/?page=week', '/?page=stats', '/?page=guess'];
       for (let m = 1; m <= 12; m++) for (let d = 1; d <= new Date(Date.UTC(2024, m, 0)).getUTCDate(); d++)
         urls.push(`/?date=${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
       const bands = await query(`SELECT DISTINCT r.BandId FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE ${VISIBLE}`);
