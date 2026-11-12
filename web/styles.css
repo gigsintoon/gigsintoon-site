@@ -87,3 +87,16 @@ h2{margin:18px 0 4px}h3{margin:24px 0 4px}
   .card.open .writeup{display:block}
   .bar{flex-wrap:wrap;height:auto;padding:8px 16px;gap:8px}.nav{order:3;width:100%;margin:0;gap:18px}.search{max-width:none;order:2;flex-basis:100%}.social{margin-left:auto}
   .adminbar .wrap{height:auto;flex-wrap:wrap;padding:6px 16px;gap:8px}.favs{grid-template-columns:1fr}.gig{flex-direction:column}.gig img{width:100%}}
+
+body.holding > header, body.holding > main, body.holding > footer{display:none}
+.countdown{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;text-align:center;
+  background:radial-gradient(ellipse at top, #2a2410 0%, var(--bg) 60%)}
+.cd-inner{max-width:760px;width:100%}
+.cd-brand{font-weight:800;font-size:clamp(2.4rem,9vw,4.6rem);letter-spacing:-.02em}.cd-brand span{color:var(--accent)}
+.cd-tag{color:var(--muted);font-size:clamp(1rem,3.5vw,1.25rem);margin:8px 0 34px}
+.cd-clock{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(8px,2.5vw,18px);margin:0 auto 28px;max-width:640px}
+.cd-clock div{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:clamp(12px,3vw,22px) 4px;display:flex;flex-direction:column;gap:6px}
+.cd-clock b{font-size:clamp(2rem,9vw,4.2rem);font-variant-numeric:tabular-nums;line-height:1;color:var(--accent)}
+.cd-clock span{font-size:clamp(.7rem,2.5vw,.9rem);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.cd-when{font-size:clamp(1.05rem,3.5vw,1.35rem);font-weight:700;margin:0 0 14px}.cd-follow{color:var(--muted)}
+.cd-admin{margin-top:26px}

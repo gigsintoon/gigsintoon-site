@@ -1,7 +1,7 @@
 const { app } = require('@azure/functions');
 const { sql, query, json, fail } = require('../db');
 const { buildHandleMap, handlesFor, norm } = require('../handles');
-const { isOwner, seesAll } = require('../auth');
+const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
 const FAVOURITES = require('../favourites.json');
 
 // @handle/#hashtag -> band, rebuilt from the write-ups at most every 10 minutes
@@ -61,6 +61,7 @@ app.http('onThisDay', {
   authLevel: 'anonymous',
   route: 'onthisday',
   handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
     const month = parseInt(request.query.get('month'), 10);
     const day = parseInt(request.query.get('day'), 10);
     if (!(month >= 1 && month <= 12 && day >= 1 && day <= 31)) {
@@ -121,6 +122,7 @@ app.http('searchBands', {
   authLevel: 'anonymous',
   route: 'search',
   handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
     const q = (request.query.get('q') || '').trim();
     if (q.length < 2) return json({ bands: [] });
     const all = seesAll(request);
@@ -147,6 +149,7 @@ app.http('band', {
   authLevel: 'anonymous',
   route: 'bands/{id:int}',
   handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
     const id = parseInt(request.params.id, 10);
     const all = seesAll(request);
     try {
@@ -181,6 +184,7 @@ app.http('favourites', {
   authLevel: 'anonymous',
   route: 'favourites',
   handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
     try {
       if (!favCache || Date.now() - favCacheAt > 10 * 60 * 1000) {
         const rows = await query(
@@ -229,6 +233,7 @@ app.http('teaser', {
   authLevel: 'anonymous',
   route: 'teaser/{id:int}',
   handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
     try {
       const rows = await query(
         `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Releases r ON r.ReleaseId = i.ReleaseId
@@ -251,6 +256,7 @@ app.http('gigTeaser', {
   authLevel: 'anonymous',
   route: 'gigteaser/{id:int}',
   handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
     try {
       const rows = await query(
         `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Gigs g ON g.GigId = i.GigId
@@ -332,6 +338,14 @@ app.http('visits', {
       return fail(context, err);
     }
   }
+});
+
+// GET /api/launch -> when the site goes live (used by the countdown page)
+app.http('launch', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'launch',
+  handler: async (request) => json({ launchAt: LAUNCH_AT, live: isLive(), now: new Date().toISOString(), owner: isOwner(request) })
 });
 
 // GET /api/health -> checks the database connection

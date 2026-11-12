@@ -15,7 +15,8 @@
     { "route": "/admin", "rewrite": "/admin.html", "allowedRoles": ["owner"] },
     { "route": "/admin.*", "allowedRoles": ["owner"] },
     { "route": "/api/manage/*", "allowedRoles": ["owner"] },
-    { "route": "/*", "allowedRoles": ["owner"] }
+    { "route": "/api/*", "allowedRoles": ["anonymous", "authenticated"] },
+    { "route": "/*", "allowedRoles": ["anonymous", "authenticated"] }
   ],
   "responseOverrides": {
     "401": { "redirect": "/.auth/login/aad?post_login_redirect_uri=.referrer", "statusCode": 302 },

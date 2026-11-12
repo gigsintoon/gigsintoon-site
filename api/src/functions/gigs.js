@@ -1,6 +1,6 @@
 const { app } = require('@azure/functions');
 const { sql, query, json, fail } = require('../db');
-const { isOwner, seesAll } = require('../auth');
+const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
 const { BlobServiceClient } = require('@azure/storage-blob');
 
 // Setlists and playlist links live in import/gig-extras.json ({ gigId: {setlist, setlistUrl, playlistUrl} })
@@ -30,6 +30,7 @@ app.http('gig', {
   authLevel: 'anonymous',
   route: 'gigs/{id:int}',
   handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
     const all = seesAll(request);
     try {
       const id = parseInt(request.params.id, 10);

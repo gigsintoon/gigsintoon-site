@@ -314,9 +314,49 @@ function countVisit() {
   } catch { /* ignore */ }
 }
 
+// Before launch, visitors (and the owner when "viewing as visitor") get a countdown instead of the site.
+// When it reaches zero the page reloads and the API starts answering, so the full site appears by itself.
+function showCountdown(launchAt, serverNow) {
+  const offset = Date.parse(serverNow) - Date.now();          // trust the server's clock, not the visitor's
+  const target = Date.parse(launchAt);
+  const day = new Date(target).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/London' });
+  const time = new Date(target).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/London' });
+  const when = `${day} at ${time === '12:00' ? '12 noon' : time}`;
+  document.body.classList.add('holding');
+  const box = document.createElement('section');
+  box.className = 'countdown';
+  box.innerHTML = `
+    <div class="cd-inner">
+      <div class="cd-brand">Gigs in <span>toon</span></div>
+      <p class="cd-tag">Every release, every gig memory – on the day it happened.</p>
+      <div class="cd-clock" aria-live="polite">
+        <div><b id="cdD">0</b><span>days</span></div><div><b id="cdH">00</b><span>hours</span></div>
+        <div><b id="cdM">00</b><span>minutes</span></div><div><b id="cdS">00</b><span>seconds</span></div>
+      </div>
+      <p class="cd-when">Launching ${esc(when)}</p>
+      <p class="cd-follow">Follow along: <a href="https://x.com/gigsintoon">X</a> · <a href="https://www.instagram.com/gigsintoon">Instagram</a> · <a href="https://bsky.app/profile/gigsintoon.bsky.social">Bluesky</a></p>
+      ${isAdmin ? '<p class="cd-admin"><button id="cdExit" type="button">Back to the admin view</button></p>' : ''}
+    </div>`;
+  document.body.prepend(box);
+  const pad = n => String(n).padStart(2, '0');
+  const tick = () => {
+    const left = Math.max(0, target - (Date.now() + offset));
+    const s = Math.floor(left / 1000);
+    $('cdD').textContent = Math.floor(s / 86400); $('cdH').textContent = pad(Math.floor(s / 3600) % 24);
+    $('cdM').textContent = pad(Math.floor(s / 60) % 60); $('cdS').textContent = pad(s % 60);
+    if (left <= 0) { clearInterval(timer); box.querySelector('.cd-when').textContent = "We're live! Loading…"; setTimeout(() => location.reload(), 1500 + Math.random() * 3000); }
+  };
+  const timer = setInterval(tick, 250); tick();
+  $('cdExit')?.addEventListener('click', () => { sessionStorageSet('asVisitor', '0'); location.reload(); });
+}
+
 (async () => {
   countVisit();
-  try { isAdmin = !!(await (await fetch('/api/me')).json()).owner; } catch { isAdmin = false; }
+  let launch = { live: true };
+  try { launch = await (await fetch('/api/launch', { cache: 'no-store' })).json(); } catch { /* assume live */ }
+  isAdmin = !!launch.owner;
+  if (launch.owner === undefined) { try { isAdmin = !!(await (await fetch('/api/me')).json()).owner; } catch { isAdmin = false; } }
+  if (!launch.live && (!isAdmin || asVisitor)) { showCountdown(launch.launchAt, launch.now); return; }
   renderAdminBar();
   route();
 })();
