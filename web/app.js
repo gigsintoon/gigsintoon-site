@@ -262,8 +262,8 @@ async function showWeek() {
     $('weekBody').innerHTML = days.map((d, i) => {
       const x = data[i] || { releases: [], gigs: [], teasers: [], gigTeasers: [] };
       const label = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : d.toLocaleDateString('en-GB', { weekday: 'long', timeZone: 'UTC' });
-      const thumbs = x.releases.slice(0, 12).map(r => r.CoverUrl ? `<img src="${esc(r.CoverUrl)}" alt="${esc(r.Artist + ' – ' + r.Title)}" title="${esc(r.ReleaseYear + ' · ' + r.Artist + ' – ' + r.Title)}" loading="lazy">` : '').join('')
-        + (x.teasers || []).slice(0, Math.max(0, 12 - x.releases.length)).map(t => t.HasCover ? `<img class="tz" src="/api/teaser/${t.Id}?b=14" alt="Mystery cover" loading="lazy">` : '').join('');
+      const thumbs = x.releases.slice(0, 12).map(r => r.CoverUrl ? `<img src="/api/thumb?s=128&u=${encodeURIComponent(r.CoverUrl)}" alt="${esc(r.Artist + ' – ' + r.Title)}" title="${esc(r.ReleaseYear + ' · ' + r.Artist + ' – ' + r.Title)}" loading="lazy">` : '').join('')
+        + (x.teasers || []).slice(0, Math.max(0, 12 - x.releases.length)).map(t => t.HasCover ? `<img class="tz" src="/api/teaser/${t.Id}?b=14&s=128" alt="Mystery cover" loading="lazy">` : '').join('');
       const n = x.releases.length + (x.teasers || []).length, g = (x.gigs || []).length + (x.gigTeasers || []).length;
       const mmdd = `${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
       return `<a class="weekday" href="/?date=${mmdd}" data-date="${mmdd}">

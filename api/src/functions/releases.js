@@ -277,7 +277,7 @@ app.http('teaser', {
         { id: [sql.Int, parseInt(request.params.id, 10)] });
       if (!rows.length) return { status: 404 };
       const b = Math.max(0, Math.min(40, parseFloat(request.query.get('b') ?? '12') || 0));
-      const body = await blurred(rows[0].PublicUrl, isOwner(request) && request.query.get('b') === '0' ? 0 : Math.max(b, 1.5));
+      const body = await blurred(rows[0].PublicUrl, isOwner(request) && request.query.get('b') === '0' ? 0 : Math.max(b, 1.5), Math.min(600, Math.max(96, parseInt(request.query.get('s') || '600', 10) || 600)));
       return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };
     } catch (err) {
       return fail(context, err);
@@ -697,5 +697,23 @@ app.http('health', {
       context.error(err);
       return json({ ok: false, error: err.message }, 500);
     }
+  }
+});
+
+// Small thumbnails of our own covers, so pages with lots of covers stay light
+const MEDIA_PREFIX = 'https://gigsintoonmedia.blob.core.windows.net/media/';
+app.http('thumb', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'thumb',
+  handler: async (request) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    const u = request.query.get('u') || '';
+    if (!u.startsWith(MEDIA_PREFIX) || u.includes('..')) return { status: 400, body: 'bad url' };
+    const size = Math.min(400, Math.max(48, parseInt(request.query.get('s') || '160', 10) || 160));
+    try {
+      const body = await sharp()(await fetchImage(u)).resize(size, size, { fit: 'cover' }).jpeg({ quality: 78 }).toBuffer();
+      return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=604800' } };
+    } catch { return { status: 404, body: 'not found' }; }
   }
 });
