@@ -92,9 +92,11 @@ h2{margin:18px 0 4px}h3{margin:24px 0 4px}
 .weekday{display:block;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:10px 0;color:var(--text);text-decoration:none}
 .weekday:hover{border-color:var(--accent)}.wd{display:flex;gap:10px;align-items:baseline}.wd b{font-size:1.1rem}.wd span{color:var(--muted)}.wn{font-size:14px;color:var(--accent);margin:2px 0 8px}
 .wthumbs{display:flex;gap:6px;overflow:hidden}.wthumbs img{width:64px;height:64px;object-fit:cover;border-radius:6px;flex:none}
-.foot{border-top:1px solid var(--line);margin-top:40px;padding:18px 0 28px;font-size:14px;color:var(--muted)}
-.foot .wrap{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
-.foot a{color:var(--muted)}.foot a:hover{color:var(--text)}
+.foot{border-top:1px solid var(--line);margin-top:40px;padding:20px 0 24px;font-size:14px;color:var(--muted);background:var(--panel)}
+.foot .wrap{display:flex;flex-wrap:wrap;gap:8px 20px;align-items:center;justify-content:center;text-align:center}
+.foot .wrap > span:first-child{flex-basis:100%}
+.foot a{color:var(--muted);text-decoration:none}.foot a:hover{color:var(--text);text-decoration:underline}
+body{min-height:100vh;display:flex;flex-direction:column}body > main{flex:1 0 auto;width:100%;box-sizing:border-box}
 .prose{max-width:760px;padding-top:24px;padding-bottom:20px}.prose p,.prose li{color:#d6d9dc}.prose li{margin:4px 0}
 .teaser .cover{overflow:hidden}.teaser .cover img{object-fit:cover}
 .teaser .cover span{font-size:64px;color:var(--accent);font-weight:800}
