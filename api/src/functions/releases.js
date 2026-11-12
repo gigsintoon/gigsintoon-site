@@ -668,11 +668,10 @@ app.http('guessImage', {
       const p = await puzzleFor(week);
       if (!p) return { status: 404 };
       const S = 1080;
-      const cover = await blurred(p.CoverUrl, 9, 860);
-      const letter = p.Artist.replace(/^the\s+/i, '').charAt(0).toUpperCase().replace(/&/g, '&amp;').replace(/</g, '&lt;');
+      const cover = await blurred(p.CoverUrl, 22, 860);
       const svg = Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${S}" height="${S}">
         <text x="${S / 2}" y="66" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="54" font-weight="800" fill="#ececec">Guess the <tspan fill="#f2b134">cover</tspan></text>
-        <text x="${S / 2}" y="${S - 40}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="32" fill="#cfd3d7">${p.ReleaseYear} · band begins with ${letter} · gigsintoon.co.uk</text>
+        <text x="${S / 2}" y="${S - 40}" text-anchor="middle" font-family="Arial, Helvetica, sans-serif" font-size="32" fill="#cfd3d7">Released in ${p.ReleaseYear} · play at gigsintoon.co.uk</text>
       </svg>`);
       const body = await sharp()({ create: { width: S, height: S, channels: 3, background: '#111214' } })
         .composite([{ input: cover, left: 110, top: 100 }, { input: svg, left: 0, top: 0 }]).jpeg({ quality: 86 }).toBuffer();
