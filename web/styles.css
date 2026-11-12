@@ -62,6 +62,10 @@ input[type=date]{background:var(--panel);color:var(--text);border:1px solid var(
 .fav img,.fav .nocover{width:72px;height:72px;border-radius:6px;object-fit:cover;flex:none;background:#26292e}
 .rank{display:inline-block;min-width:28px;color:var(--accent);font-weight:800;font-size:18px}
 h2{margin:18px 0 4px}h3{margin:24px 0 4px}
+.gig{cursor:pointer}.gig:hover{border-color:var(--accent)}
+.gigpics{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:16px 0}.gigpics img{width:100%;border-radius:8px}
+.sets{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}.set ol{padding-left:22px;margin:6px 0}.set li{margin:2px 0}
+.btn{display:inline-block;background:var(--accent);color:#111;font-weight:700;text-decoration:none;padding:8px 14px;border-radius:8px}
 .foot{border-top:1px solid var(--line);margin-top:40px;padding:18px 0 28px;font-size:14px;color:var(--muted)}
 .foot .wrap{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
 .foot a{color:var(--muted)}.foot a:hover{color:var(--text)}

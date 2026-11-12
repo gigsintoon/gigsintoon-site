@@ -93,7 +93,7 @@ function releaseCard(r, { showDate = false, viewYear = null, isToday = false } =
 }
 
 function gigCard(g) {
-  return `<div class="gig">
+  return `<div class="gig" data-gig="${g.GigId}" role="link" tabindex="0">
     ${g.ImageUrl ? `<img src="${esc(g.ImageUrl)}" alt="Gig ticket" loading="lazy">` : ''}
     <div><div class="year">Gig memory · ${esc(g.GigYear)}</div>
       <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at ${esc(g.Venue)}` : ''}
@@ -114,8 +114,31 @@ function teaserCard(t) {
   </div>`;
 }
 
+async function showGig(id) {
+  showOnly('gigView');
+  history.replaceState(null, '', `/?gig=${id}`);
+  $('gigBody').innerHTML = '<p class="muted">Loading…</p>';
+  try {
+    const { gig: g } = await api(`gigs/${id}`);
+    const d = new Date(g.GigDate);
+    const when = `${ordinal(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    const bill = g.Bands.map(b => `<button class="bandlink" data-band="${b.BandId}">${esc(b.Name)}</button>`).join(' + ');
+    const pics = g.Images.map(i => `<img src="${esc(i.Url)}" alt="${esc(i.AltText || i.Kind)}" loading="lazy">`).join('');
+    const sets = (g.Setlist || []).map(s => `<div class="set"><h3>${esc(s.band)}</h3><ol>${(s.songs || []).map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`).join('');
+    $('gigBody').innerHTML = `
+      <div class="year">Gig memory · ${esc(when)}</div>
+      <h1>${bill}</h1>
+      <p class="muted">${esc([g.Venue, g.City].filter(Boolean).join(', '))}${g.TourName ? ` · ${esc(g.TourName)}` : ''}</p>
+      ${g.PlaylistUrl ? `<p><a class="btn" href="${esc(g.PlaylistUrl)}" target="_blank" rel="noopener">▶ Listen to the setlist on Deezer</a></p>` : ''}
+      ${pics ? `<div class="gigpics">${pics}</div>` : ''}
+      ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}
+      ${sets ? `<h2>Setlist</h2><div class="sets">${sets}</div>` : ''}
+      ${g.SetlistUrl ? `<p class="meta">Setlist from <a href="${esc(g.SetlistUrl)}" target="_blank" rel="noopener">setlist.fm</a></p>` : ''}`;
+  } catch (e) { $('gigBody').innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
+}
+
 function showOnly(id) {
-  for (const v of ['dayView', 'bandView', 'favView']) $(v).hidden = v !== id;
+  for (const v of ['dayView', 'bandView', 'favView', 'gigView']) $(v).hidden = v !== id;
   document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
 }
 
@@ -234,6 +257,8 @@ document.addEventListener('click', e => {
   }
   const wu = e.target.closest('.writeup');
   if (wu && !e.target.closest('[data-band]')) { wu.closest('.card')?.classList.toggle('open'); return; }
+  const gg = e.target.closest('[data-gig]');
+  if (gg && !e.target.closest('[data-band]')) { showGig(gg.dataset.gig); return; }
   const fy = e.target.closest('[data-favyear]');
   if (fy) { showFavourites(fy.dataset.favyear); return; }
   const b = e.target.closest('[data-band]');
@@ -263,7 +288,8 @@ $('visitorToggle').onclick = () => {
 
 function route() {
   const p = new URLSearchParams(location.search);
-  if (p.get('band')) showBand(p.get('band'));
+  if (p.get('gig')) showGig(p.get('gig'));
+  else if (p.get('band')) showBand(p.get('band'));
   else if (p.get('page') === 'favourites') showFavourites(p.get('year'));
   else if (/^\d{2}-\d{2}$/.test(p.get('date') || '')) {
     const [mm, dd] = p.get('date').split('-').map(Number);
