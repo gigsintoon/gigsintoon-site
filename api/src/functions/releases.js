@@ -17,22 +17,25 @@ async function handleMap() {
   return handleCache;
 }
 
+// Visitors only see releases that have been posted. An orange (drafted/scheduled) one counts as posted
+// once its day has come round this year, the same rule the spreadsheet import uses.
+const UK_TODAY = `CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)`;
+const DAY_REACHED = `((r.ReleaseMonth < MONTH(${UK_TODAY}) OR (r.ReleaseMonth = MONTH(${UK_TODAY}) AND r.ReleaseDay <= DAY(${UK_TODAY})))
+  AND r.ReleaseDate <= ${UK_TODAY})`;
+const VISIBLE = `(r.Status = 'Posted' OR (r.Status = 'Drafted' AND ${DAY_REACHED}))`;
+
 const RELEASE_COLUMNS = `
   r.ReleaseId, r.ReleaseYear, r.ReleaseMonth, r.ReleaseDay, r.ReleaseDate,
   COALESCE(r.ArtistDisplay, b.Name) AS Artist, b.BandId,
   r.Title, r.ReleaseType, r.ChartPosition, r.ChartNote, r.Label,
-  r.WriteUp, r.Status, r.OnSonosPlaylist AS OnSonos, r.Owned, b.NeverPost,
+  r.WriteUp,
+  -- an orange (scheduled) post counts as posted once its day has come round
+  CASE WHEN r.Status = 'Drafted' AND ${DAY_REACHED} THEN 'Posted' ELSE r.Status END AS Status,
+  r.OnSonosPlaylist AS OnSonos, r.Owned, b.NeverPost,
   (SELECT TOP 1 i.PublicUrl FROM music.Images i
      WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS CoverUrl,
   (SELECT i.PublicUrl AS u FROM music.Images i
      WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId FOR JSON PATH) AS ImagesJson`;
-
-// Visitors only see releases that have been posted. An orange (drafted/scheduled) one counts as posted
-// once its day has come round this year, the same rule the spreadsheet import uses.
-const UK_TODAY = `CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)`;
-const VISIBLE = `(r.Status = 'Posted' OR (r.Status = 'Drafted'
-  AND (r.ReleaseMonth < MONTH(${UK_TODAY}) OR (r.ReleaseMonth = MONTH(${UK_TODAY}) AND r.ReleaseDay <= DAY(${UK_TODAY})))
-  AND r.ReleaseDate <= ${UK_TODAY}))`;
 
 function tidy(rows, all) {
   return rows.map(r => {
