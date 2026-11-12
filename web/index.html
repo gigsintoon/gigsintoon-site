@@ -4,6 +4,24 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>Gigs in toon – On This Day</title>
+  <meta name="description" content="Gigs in toon – a lifetime of music I love: my collection and gig memories, on the day they happened. Pick any day of the year and see what came out.">
+  <link rel="canonical" href="https://www.gigsintoon.co.uk/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Gigs in toon">
+  <meta property="og:title" content="Gigs in toon – music on the day it happened">
+  <meta property="og:description" content="A lifetime of music I love – my collection and gig memories, on the day they happened.">
+  <meta property="og:url" content="https://www.gigsintoon.co.uk/">
+  <meta property="og:image" content="https://www.gigsintoon.co.uk/share.jpg">
+  <meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Gigs in toon – a lifetime of music I love">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:site" content="@gigsintoon">
+  <meta name="twitter:image" content="https://www.gigsintoon.co.uk/share.jpg">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/site.webmanifest">
+  <meta name="theme-color" content="#111214">
   <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -13,6 +31,9 @@
       <nav class="nav">
         <a id="navDay" data-nav="dayView" href="/">On this day</a>
         <a id="navFav" data-nav="favView" href="/?page=favourites">Favourites</a>
+        <a id="navYears" data-nav="yearView" href="/?page=years">Years</a>
+        <a id="navStats" data-nav="statsView" href="/?page=stats">Stats</a>
+        <a id="navGuess" data-nav="guessView" href="/?page=guess">Guess the cover</a>
         <a href="/about">About</a>
       </nav>
       <form id="searchForm" class="search" role="search">
@@ -45,6 +66,7 @@
         <button id="nextDay" aria-label="Next day">›</button>
         <input id="datePick" type="date" aria-label="Pick a date">
         <button id="todayBtn" class="ghost">Today</button>
+        <button id="surpriseBtn" class="ghost" title="Jump to a random release">🎲 Surprise me</button>
       </div>
       <p id="daySummary" class="muted"></p>
       <div id="gigs"></div>
@@ -61,6 +83,24 @@
     <section id="gigView" hidden>
       <button class="ghost" onclick="history.back()">‹ Back</button>
       <div id="gigBody"></div>
+    </section>
+
+    <section id="yearView" hidden>
+      <h1 id="yearTitle">Browse by year</h1>
+      <div id="yearList" class="years"></div>
+      <p id="yearSummary" class="muted"></p>
+      <div id="yearGigs"></div>
+      <div id="yearBody" class="grid"></div>
+    </section>
+
+    <section id="statsView" hidden>
+      <h1>Stats</h1>
+      <div id="statsBody"><p class="muted">Loading…</p></div>
+    </section>
+
+    <section id="guessView" hidden>
+      <h1>Guess the cover</h1>
+      <div id="guessBody"><p class="muted">Loading…</p></div>
     </section>
 
     <section id="favView" hidden>

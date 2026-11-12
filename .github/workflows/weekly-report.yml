@@ -1,0 +1,30 @@
+name: Weekly site report
+# Every Monday morning: fetch the site's weekly summary and save it on the "reports" branch,
+# where Claude's scheduled task picks it up and emails it to Michael.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  report:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fetch report
+        env:
+          REPORT_KEY: ${{ secrets.REPORT_KEY }}
+        run: |
+          curl -sf -H "x-report-key: $REPORT_KEY" https://www.gigsintoon.co.uk/api/report -o report.json
+          python3 -c "import json;json.load(open('report.json'))"
+      - name: Save to reports branch
+        run: |
+          d=$(date -u +%F)
+          git init -q out && cd out
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git fetch -q --depth 1 origin reports || true
+          git checkout -q -B reports $( git rev-parse -q --verify FETCH_HEAD >/dev/null && echo FETCH_HEAD )
+          mkdir -p reports && cp ../report.json "reports/$d.json" && cp ../report.json reports/latest.json
+          git -c user.name="gigsintoon-bot" -c user.email="bot@gigsintoon.co.uk" add reports
+          git -c user.name="gigsintoon-bot" -c user.email="bot@gigsintoon.co.uk" commit -qm "Report $d" || true
+          git push -q origin reports

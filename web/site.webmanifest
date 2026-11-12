@@ -1,0 +1,27 @@
+{
+ "name": "Gigs in toon",
+ "short_name": "Gigs in toon",
+ "description": "A lifetime of music I love \u2013 my collection and gig memories, on the day they happened.",
+ "start_url": "/",
+ "display": "standalone",
+ "background_color": "#111214",
+ "theme_color": "#111214",
+ "icons": [
+  {
+   "src": "/icon-192.png",
+   "sizes": "192x192",
+   "type": "image/png"
+  },
+  {
+   "src": "/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png"
+  },
+  {
+   "src": "/icon-512.png",
+   "sizes": "512x512",
+   "type": "image/png",
+   "purpose": "maskable"
+  }
+ ]
+}

@@ -79,7 +79,7 @@ function releaseCard(r, { showDate = false, viewYear = null, isToday = false } =
   const flag = isNew ? `<span class="newflag">${isToday ? 'NEW · Out today' : 'NEW'}</span>` : '';
   const status = isAdmin && !asVisitor && r.Status
     ? `<span class="badge s-${esc(r.Status)}">${esc(STATUS_LABEL[r.Status] || r.Status)}</span>` : '';
-  return `<article class="card${isNew ? ' isnew' : ''}">
+  return `<article class="card${isNew ? ' isnew' : ''}" data-rid="${r.ReleaseId}">
     ${coverHtml(r)}
     <div class="body">
       <div class="year">${esc(when)} ${flag}</div>
@@ -87,9 +87,19 @@ function releaseCard(r, { showDate = false, viewYear = null, isToday = false } =
       <div class="title">${esc(r.Title)}</div>
       <div class="meta">${esc([r.ReleaseType, chart, r.ChartNote, r.Label].filter(Boolean).join(' · '))}</div>
       ${r.WriteUp ? `<div class="writeup">${renderWriteUp(r.WriteUp)}</div>` : ''}
+      ${listenLinks(r)}
       ${status ? `<div class="badges">${status}</div>` : ''}
     </div>
   </article>`;
+}
+
+// Listen links search each service for "band title" (no accounts or keys needed)
+function listenLinks(r) {
+  const q = encodeURIComponent(`${r.Artist} ${r.Title}`.replace(/\s+(EP|Single|CD[12])$/i, ''));
+  return `<div class="listen"><span>Listen:</span>
+    <a href="https://music.apple.com/gb/search?term=${q}" target="_blank" rel="noopener">Apple Music</a>
+    <a href="https://open.spotify.com/search/${q}" target="_blank" rel="noopener">Spotify</a>
+    <a href="https://www.deezer.com/search/${q}" target="_blank" rel="noopener">Deezer</a></div>`;
 }
 
 function gigCard(g) {
@@ -147,7 +157,7 @@ function gigTeaserCard(t) {
 }
 
 function showOnly(id) {
-  for (const v of ['dayView', 'bandView', 'favView', 'gigView']) $(v).hidden = v !== id;
+  for (const v of ['dayView', 'bandView', 'favView', 'gigView', 'yearView', 'statsView', 'guessView']) $(v).hidden = v !== id;
   document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
 }
 
@@ -199,6 +209,100 @@ async function showBand(id) {
   } catch (e) {
     $('bandName').textContent = e.message;
   }
+}
+
+// Browse by year
+async function showYear(year) {
+  showOnly('yearView');
+  history.replaceState(null, '', year ? `/?year=${year}` : '/?page=years');
+  try {
+    const { years } = await api('years');
+    $('yearList').innerHTML = years.map(y => `<button type="button" class="yearbtn${String(y.year) === String(year) ? ' on' : ''}" data-year="${y.year}">${y.year}</button>`).join('');
+    if (!year) { $('yearTitle').textContent = 'Browse by year'; $('yearSummary').textContent = 'Pick a year.'; $('yearBody').innerHTML = ''; $('yearGigs').innerHTML = ''; return; }
+    $('yearTitle').textContent = year; $('yearSummary').textContent = 'Loading…'; $('yearBody').innerHTML = ''; $('yearGigs').innerHTML = '';
+    const data = await api(`years/${year}`);
+    handles = data.handles || {};
+    const fav = new Set(data.favourites || []);
+    const key = r => (r.Artist + '|' + r.Title).toLowerCase().replace(/\b(the|a|an)\b/g, '').replace(/&/g, 'and').replace(/[^a-z0-9|]/g, '');
+    $('yearSummary').textContent = `${data.releases.length} release${data.releases.length === 1 ? '' : 's'}` + (data.gigs.length ? ` · ${data.gigs.length} gig memor${data.gigs.length === 1 ? 'y' : 'ies'}` : '') + (fav.size ? ' · ★ = one of my albums of the year' : '');
+    $('yearGigs').innerHTML = data.gigs.map(g => gigCard({ ...g, WriteUp: null }) .replace('Gig memory ·', `Gig memory · ${ordinal(new Date(g.GigDate).getUTCDate())} ${MONTHS[new Date(g.GigDate).getUTCMonth()]}`)).join('');
+    $('yearBody').innerHTML = data.releases.map(r => {
+      const card = releaseCard(r, { showDate: true });
+      return fav.has(key(r)) ? card.replace('<article class="card', '<article class="card isfav').replace('<div class="year">', '<div class="year">★ ') : card;
+    }).join('') || '<p class="empty">Nothing from this year yet.</p>';
+  } catch (e) { $('yearSummary').textContent = e.message; }
+}
+
+// Stats
+function bars(rows, label, val = 'N', link) {
+  const max = Math.max(1, ...rows.map(r => r[val]));
+  return `<div class="bars">${rows.map(r => `<div class="barrow"><span class="bl">${link ? link(r) : esc(label(r))}</span>
+    <span class="bt"><i style="width:${Math.round(r[val] / max * 100)}%"></i></span><span class="bn">${r[val]}</span></div>`).join('')}</div>`;
+}
+async function showStats() {
+  showOnly('statsView');
+  history.replaceState(null, '', '/?page=stats');
+  try {
+    const s = await api('stats');
+    const t = s.totals;
+    const bandLink = r => `<button class="bandlink" data-band="${r.BandId}">${esc(r.Name)}</button>`;
+    $('statsBody').innerHTML = `
+      <div class="tiles">
+        <div><b>${t.Releases.toLocaleString('en-GB')}</b><span>releases</span></div>
+        <div><b>${t.Bands}</b><span>bands</span></div>
+        <div><b>${t.Gigs}</b><span>gig memories</span></div>
+        <div><b>${t.Venues}</b><span>venues</span></div>
+        <div><b>${t.No1 || 0}</b><span>UK number ones</span></div>
+        <div><b>${t.Top10 || 0}</b><span>UK top tens</span></div>
+      </div>
+      <div class="statgrid">
+        <section><h2>Most-posted bands</h2>${bars(s.topBands, null, 'N', bandLink)}</section>
+        <section><h2>Releases by decade</h2>${bars(s.decades, r => r.Decade + 's')}</section>
+        <section><h2>Busiest years</h2>${bars(s.topYears, null, 'N', r => `<button class="bandlink" data-year="${r.Year}">${r.Year}</button>`)}</section>
+        <section><h2>Albums, singles & EPs</h2>${bars(s.types, r => r.Type)}</section>
+        <section><h2>Gigs by year</h2>${bars(s.gigYears, r => r.Year)}</section>
+        <section><h2>Most-visited venues</h2>${bars(s.venues, r => r.Venue)}</section>
+        ${s.gigBands.length ? `<section><h2>Seen live most</h2>${bars(s.gigBands, null, 'N', bandLink)}</section>` : ''}
+      </div>`;
+  } catch (e) { $('statsBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
+}
+
+// Guess the cover – one a week
+async function showGuess() {
+  showOnly('guessView');
+  history.replaceState(null, '', '/?page=guess');
+  try {
+    const g = await api('guess');
+    const what = TYPE_WORD[g.type] || 'a release';
+    const last = g.lastWeek;
+    $('guessBody').innerHTML = `
+      <div class="guess">
+        <div class="gcover"><img src="/api/teaser/${g.id}" alt="This week's blurred cover"></div>
+        <div class="gside">
+          <p class="lead">This week's mystery cover is ${what} from <b>${g.year}</b>, by a band beginning with <b>${esc(g.letter)}</b>.</p>
+          <form id="guessForm" class="gform"><input name="guess" placeholder="Band or title…" autocomplete="off" maxlength="120" required>
+            <button class="btn" type="submit">Guess</button></form>
+          <p id="guessResult" class="muted" role="status">${g.tally.tries ? `${g.tally.correct} of ${g.tally.tries} guesses right so far this week.` : 'Be the first to have a go this week!'}</p>
+          <p class="muted" style="font-size:14px">A new cover every Monday. The answer's revealed the week after.</p>
+        </div>
+      </div>
+      ${last ? `<h2>Last week's answer</h2>
+        <div class="fav"><img src="${esc(last.cover)}" alt="" loading="lazy"><div><button class="artist" data-band="${last.bandId}">${esc(last.artist)}</button>
+        <div class="title">${esc(last.title)} (${last.year})</div><div class="meta">${last.tally.correct} of ${last.tally.tries} guessed it</div></div></div>` : ''}`;
+    $('guessForm').addEventListener('submit', async e => {
+      e.preventDefault();
+      const r = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guess: e.target.guess.value }) }).then(x => x.json());
+      if (r.correct) {
+        const a = r.answer;
+        document.querySelector('.gcover img').src = a.cover;
+        document.querySelector('.gcover').classList.add('revealed');
+        $('guessResult').innerHTML = `🎉 Spot on – <b>${esc(a.artist)} – ${esc(a.title)}</b> (${a.year}). <a href="/?date=${String(a.month).padStart(2, '0')}-${String(a.day).padStart(2, '0')}">See it on its day</a>`;
+        e.target.remove();
+      } else {
+        $('guessResult').textContent = 'Not quite – have another go!';
+      }
+    });
+  } catch (e) { $('guessBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
 
 // Favourite albums by year, plus what's coming up
@@ -270,6 +374,8 @@ document.addEventListener('click', e => {
   if (gg && !e.target.closest('[data-band]')) { showGig(gg.dataset.gig); return; }
   const fy = e.target.closest('[data-favyear]');
   if (fy) { showFavourites(fy.dataset.favyear); return; }
+  const yb = e.target.closest('[data-year]');
+  if (yb) { showYear(yb.dataset.year); return; }
   const b = e.target.closest('[data-band]');
   if (b) { $('searchResults').hidden = true; $('searchBox').value = ''; showBand(b.dataset.band); return; }
   if (!e.target.closest('.search')) $('searchResults').hidden = true;
@@ -284,6 +390,18 @@ $('datePick').onchange = () => { const v = $('datePick').value; if (v) showDay(n
 $('backBtn').onclick = () => showDay(current);
 $('navDay').onclick = e => { e.preventDefault(); showDay(current); };
 $('navFav').onclick = e => { e.preventDefault(); showFavourites(); };
+$('navYears').onclick = e => { e.preventDefault(); showYear(); };
+$('navStats').onclick = e => { e.preventDefault(); showStats(); };
+$('navGuess').onclick = e => { e.preventDefault(); showGuess(); };
+$('surpriseBtn').onclick = async () => {
+  try {
+    const r = await api('random');
+    if (!r.Month) return;
+    await showDay(new Date(Date.UTC(ukToday().getUTCFullYear(), r.Month - 1, r.Day)));
+    const card = document.querySelector(`[data-rid="${r.ReleaseId}"]`);
+    if (card) { card.classList.add('flash'); card.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+  } catch { /* ignore */ }
+};
 
 // Admin bits in the header: link to the list page, and "view as visitor"
 function renderAdminBar() {
@@ -296,10 +414,14 @@ $('visitorToggle').onclick = () => {
 };
 
 function route() {
+  if (!['/', '/index.html'].includes(location.pathname)) { location.replace('/404.html'); return; }
   const p = new URLSearchParams(location.search);
   if (p.get('gig')) showGig(p.get('gig'));
   else if (p.get('band')) showBand(p.get('band'));
   else if (p.get('page') === 'favourites') showFavourites(p.get('year'));
+  else if (p.get('page') === 'years' || p.get('year')) showYear(p.get('year'));
+  else if (p.get('page') === 'stats') showStats();
+  else if (p.get('page') === 'guess') showGuess();
   else if (/^\d{2}-\d{2}$/.test(p.get('date') || '')) {
     const [mm, dd] = p.get('date').split('-').map(Number);
     showDay(new Date(Date.UTC(ukToday().getUTCFullYear(), mm - 1, dd)));

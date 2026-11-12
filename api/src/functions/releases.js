@@ -3,6 +3,20 @@ const { sql, query, json, fail } = require('../db');
 const { buildHandleMap, handlesFor, norm } = require('../handles');
 const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
 const FAVOURITES = require('../favourites.json');
+const { BlobServiceClient } = require('@azure/storage-blob');
+const crypto = require('crypto');
+function importBlob(name) {
+  return BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING).getContainerClient('import').getBlockBlobClient(name);
+}
+async function readBlobJson(name, fallback) {
+  const b = importBlob(name);
+  if (!(await b.exists())) return fallback;
+  try { return JSON.parse((await b.downloadToBuffer()).toString('utf8')); } catch { return fallback; }
+}
+async function writeBlobJson(name, data) {
+  const t = JSON.stringify(data);
+  await importBlob(name).upload(t, Buffer.byteLength(t), { blobHTTPHeaders: { blobContentType: 'application/json' } });
+}
 
 // @handle/#hashtag -> band, rebuilt from the write-ups at most every 10 minutes
 let handleCache = null, handleCacheAt = 0;
@@ -346,6 +360,207 @@ app.http('launch', {
   authLevel: 'anonymous',
   route: 'launch',
   handler: async (request) => json({ launchAt: LAUNCH_AT, live: isLive(), now: new Date().toISOString(), owner: isOwner(request) })
+});
+
+// GET /api/random -> a random release a visitor can see (for "Surprise me")
+app.http('randomRelease', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'random',
+  handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    try {
+      const rows = await query(
+        `SELECT TOP 1 r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day
+           FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+          WHERE ${VISIBLE} AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
+          ORDER BY NEWID()`);
+      return json(rows[0] || {}, 200);
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// GET /api/years -> years with how many releases and gigs;  GET /api/years/1997 -> everything from that year
+app.http('years', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'years/{year:int?}',
+  handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    const all = seesAll(request);
+    try {
+      const year = parseInt(request.params.year, 10);
+      if (!year) {
+        const years = await query(
+          `SELECT y, SUM(rel) AS Releases, SUM(gig) AS Gigs FROM (
+             SELECT r.ReleaseYear AS y, 1 AS rel, 0 AS gig FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId ${all ? '' : `WHERE ${VISIBLE}`}
+             UNION ALL SELECT YEAR(g.GigDate), 0, 1 FROM music.Gigs g ${all ? '' : `WHERE g.Status = 'Posted'`}) x
+           GROUP BY y ORDER BY y DESC`);
+        return json({ years: years.map(r => ({ year: r.y, releases: r.Releases, gigs: r.Gigs })) });
+      }
+      const releases = tidy(await query(
+        `SELECT ${RELEASE_COLUMNS} FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+          WHERE r.ReleaseYear = @y ${all ? '' : `AND ${VISIBLE}`} ORDER BY r.ReleaseDate, Artist`,
+        { y: [sql.Int, year] }), all);
+      const gigs = await query(
+        `SELECT g.GigId, YEAR(g.GigDate) AS GigYear, g.GigDate, g.TourName, COALESCE(g.VenueAsBilled, v.Name) AS Venue,
+                (SELECT STRING_AGG(b.Name, ' / ') WITHIN GROUP (ORDER BY gb.BillOrder) FROM music.GigBands gb JOIN music.Bands b ON b.BandId = gb.BandId WHERE gb.GigId = g.GigId) AS Bands,
+                (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.GigId = g.GigId ORDER BY i.SortOrder, i.ImageId) AS ImageUrl
+           FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
+          WHERE YEAR(g.GigDate) = @y ${all ? '' : `AND g.Status = 'Posted'`} ORDER BY g.GigDate`,
+        { y: [sql.Int, year] });
+      const fav = (FAVOURITES.years || []).find(f => f.year === year);
+      const handles = handlesFor(await handleMap(), releases.map(x => x.WriteUp));
+      return json({ year, releases, gigs, favourites: fav && fav.albums ? fav.albums.map(a => norm(a.artist) + '|' + norm(a.title)) : [], handles });
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// GET /api/stats -> numbers for the stats page (only what visitors can see)
+let statsCache = null, statsAt = 0;
+app.http('stats', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'stats',
+  handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    try {
+      if (statsCache && Date.now() - statsAt < 30 * 60 * 1000) return json(statsCache);
+      const V = `FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE ${VISIBLE}`;
+      const [tot] = await query(`SELECT COUNT(*) AS Releases, COUNT(DISTINCT r.BandId) AS Bands, MIN(r.ReleaseYear) AS FirstYear ${V}`);
+      const [gt] = await query(`SELECT COUNT(*) AS Gigs, COUNT(DISTINCT VenueId) AS Venues FROM music.Gigs WHERE Status = 'Posted'`);
+      const topBands = await query(`SELECT TOP 15 b.BandId, b.Name, COUNT(*) AS N ${V} GROUP BY b.BandId, b.Name ORDER BY N DESC, b.Name`);
+      const decades = await query(`SELECT (r.ReleaseYear / 10) * 10 AS Decade, COUNT(*) AS N ${V} GROUP BY (r.ReleaseYear / 10) * 10 ORDER BY Decade`);
+      const types = await query(`SELECT r.ReleaseType AS Type, COUNT(*) AS N ${V} GROUP BY r.ReleaseType ORDER BY N DESC`);
+      const topYears = await query(`SELECT TOP 10 r.ReleaseYear AS Year, COUNT(*) AS N ${V} GROUP BY r.ReleaseYear ORDER BY N DESC`);
+      const gigYears = await query(`SELECT YEAR(GigDate) AS Year, COUNT(*) AS N FROM music.Gigs WHERE Status = 'Posted' GROUP BY YEAR(GigDate) ORDER BY Year`);
+      const venues = await query(`SELECT TOP 10 COALESCE(v.Name, g.VenueAsBilled) AS Venue, COUNT(*) AS N FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
+                                   WHERE g.Status = 'Posted' AND COALESCE(v.Name, g.VenueAsBilled) IS NOT NULL GROUP BY COALESCE(v.Name, g.VenueAsBilled) ORDER BY N DESC`);
+      const gigBands = await query(`SELECT TOP 10 b.BandId, b.Name, COUNT(*) AS N FROM music.GigBands gb JOIN music.Gigs g ON g.GigId = gb.GigId JOIN music.Bands b ON b.BandId = gb.BandId
+                                     WHERE g.Status = 'Posted' GROUP BY b.BandId, b.Name HAVING COUNT(*) > 1 ORDER BY N DESC, b.Name`);
+      const charts = await query(`SELECT COUNT(*) AS Charted, SUM(CASE WHEN r.ChartPosition <= 10 THEN 1 ELSE 0 END) AS Top10, SUM(CASE WHEN r.ChartPosition = 1 THEN 1 ELSE 0 END) AS No1 ${V} AND r.ChartPosition IS NOT NULL`);
+      statsCache = { totals: { ...tot, ...gt, ...charts[0] }, topBands, decades, types, topYears, gigYears, venues, gigBands };
+      statsAt = Date.now();
+      return json(statsCache);
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// Guess the cover: one blurred cover a week (same for everyone), picked from releases visitors can see.
+function ukWeek(d = new Date()) {
+  const t = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d));
+  const day = (t.getUTCDay() + 6) % 7;                 // Monday = 0
+  t.setUTCDate(t.getUTCDate() - day + 3);
+  const firstThu = new Date(Date.UTC(t.getUTCFullYear(), 0, 4));
+  const week = 1 + Math.round(((t - firstThu) / 86400000 - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
+  return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
+}
+async function puzzleFor(week) {
+  const rows = await query(
+    `SELECT r.ReleaseId, r.ReleaseYear, r.ReleaseType, r.Title, COALESCE(r.ArtistDisplay, b.Name) AS Artist, b.BandId,
+            r.ReleaseMonth, r.ReleaseDay,
+            (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS CoverUrl
+       FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+      WHERE ${VISIBLE} AND r.ReleaseType IN ('Album','EP','Single')
+        AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
+      ORDER BY CHECKSUM(r.ReleaseId * 7919, @w) , r.ReleaseId
+      OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY`,
+    { w: [sql.NVarChar(10), week] });
+  return rows[0] || null;
+}
+const gnorm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/&/g, 'and').replace(/\b(the|a|an)\b/g, '').replace(/[^a-z0-9]/g, '');
+function isRight(guess, p) {
+  const g = gnorm(guess);
+  if (g.length < 2) return false;
+  return [p.Title, p.Artist].map(gnorm).some(t => t && (g === t || (t.length >= 4 && g.includes(t)) || (g.length >= 5 && t.includes(g) && g.length >= t.length * 0.6)));
+}
+app.http('guess', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  route: 'guess',
+  handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    try {
+      const week = ukWeek();
+      const p = await puzzleFor(week);
+      if (!p) return json({ error: 'No puzzle this week.' }, 404);
+      const tally = await readBlobJson(`guess/${week}.json`, { tries: 0, correct: 0 });
+      if (request.method === 'POST') {
+        const b = await request.json().catch(() => ({}));
+        const ok = isRight(b.guess, p);
+        tally.tries++; if (ok) tally.correct++;
+        await writeBlobJson(`guess/${week}.json`, tally);
+        return json({ correct: ok, answer: ok ? { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl,
+                      month: p.ReleaseMonth, day: p.ReleaseDay } : null, tally });
+      }
+      const last = ukWeek(new Date(Date.now() - 7 * 86400000));
+      const lp = await puzzleFor(last);
+      const lt = await readBlobJson(`guess/${last}.json`, { tries: 0, correct: 0 });
+      const letter = p.Artist.replace(/^the\s+/i, '').charAt(0).toUpperCase();
+      return json({ week, id: p.ReleaseId, year: p.ReleaseYear, type: p.ReleaseType, letter, tally,
+                    lastWeek: lp ? { artist: lp.Artist, title: lp.Title, year: lp.ReleaseYear, cover: lp.CoverUrl, bandId: lp.BandId, tally: lt } : null });
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// GET /api/sitemap -> sitemap.xml for search engines (rewritten from /sitemap.xml)
+app.http('sitemap', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'sitemap',
+  handler: async (request, context) => {
+    try {
+      const base = 'https://www.gigsintoon.co.uk';
+      const urls = ['/', '/about', '/contact', '/?page=favourites', '/?page=years', '/?page=stats', '/?page=guess'];
+      for (let m = 1; m <= 12; m++) for (let d = 1; d <= new Date(Date.UTC(2024, m, 0)).getUTCDate(); d++)
+        urls.push(`/?date=${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+      const bands = await query(`SELECT DISTINCT r.BandId FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE ${VISIBLE}`);
+      bands.forEach(b => urls.push(`/?band=${b.BandId}`));
+      const gigs = await query(`SELECT GigId FROM music.Gigs WHERE Status = 'Posted'`);
+      gigs.forEach(g => urls.push(`/?gig=${g.GigId}`));
+      const years = await query(`SELECT DISTINCT r.ReleaseYear AS Y FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE ${VISIBLE}`);
+      years.forEach(y => urls.push(`/?year=${y.Y}`));
+      const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
+        urls.map(u => `  <url><loc>${base}${u.replace(/&/g, '&amp;')}</loc></url>`).join('\n') + '\n</urlset>\n';
+      return { status: 200, body: xml, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } };
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// GET /api/report  (header x-report-key) -> weekly summary for the email: visits, messages, to-dos.
+// The key lives in import/report-key.txt; the GitHub Action that collects the report has the same key as a secret.
+app.http('report', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'report',
+  handler: async (request, context) => {
+    try {
+      const kb = importBlob('report-key.txt');
+      const key = (await kb.exists()) ? (await kb.downloadToBuffer()).toString('utf8').trim() : '';
+      const given = request.headers.get('x-report-key') || '';
+      if (!key || given.length !== key.length || !crypto.timingSafeEqual(Buffer.from(given), Buffer.from(key))) return json({ error: 'Not allowed.' }, 403);
+      let visits = null;
+      try {
+        const byDay = await query(`SELECT ViewDate, SUM(Views) AS Views, SUM(CASE WHEN Device='mobile' THEN Views ELSE 0 END) AS Mobile
+          FROM music.PageViews WHERE ViewDate >= DATEADD(day, -7, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY ViewDate ORDER BY ViewDate`);
+        const pages = await query(`SELECT TOP 10 Path, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= DATEADD(day, -7, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY Path ORDER BY Views DESC`);
+        const refs = await query(`SELECT TOP 10 RefHost, SUM(Views) AS Views FROM music.PageViews WHERE RefHost <> '' AND ViewDate >= DATEADD(day, -7, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY RefHost ORDER BY Views DESC`);
+        visits = { byDay, pages, refs };
+      } catch { visits = { unavailable: 'Visitor table not set up yet (run db/003-visits-and-permissions.sql).' }; }
+      const c = BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING).getContainerClient('import');
+      const messages = [];
+      for await (const b of c.listBlobsFlat({ prefix: 'contact/' })) {
+        const m = await readBlobJson(b.name, null);
+        if (m && !m.read) messages.push({ at: m.at, name: m.name, topic: m.topic, message: String(m.message).slice(0, 600), hasEmail: !!m.email });
+      }
+      const todos = (await readBlobJson('todos.json', [])).filter(t => !t.done).map(t => ({ owner: t.owner, title: t.title, answer: t.answer || '' }));
+      const additions = (await readBlobJson('site-additions.json', [])).length;
+      const week = ukWeek(new Date(Date.now() - 7 * 86400000));
+      const guess = await readBlobJson(`guess/${week}.json`, { tries: 0, correct: 0 });
+      const [counts] = await query(`SELECT (SELECT COUNT(*) FROM music.Releases) AS Releases, (SELECT COUNT(*) FROM music.Gigs) AS Gigs`);
+      return json({ generated: new Date().toISOString(), visits, unreadMessages: messages, openTodos: todos, siteAdditionsWaiting: additions, guessTheCover: { week, ...guess }, counts });
+    } catch (err) { return fail(context, err); }
+  }
 });
 
 // GET /api/health -> checks the database connection

@@ -166,3 +166,20 @@ app.http('adminTodos', {
     }
   }
 });
+
+// POST /api/manage/report-key (owner) -> makes a new key for the weekly report and returns it once
+app.http('adminReportKey', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/report-key',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const key = crypto.randomBytes(24).toString('hex');
+      await container().getBlockBlobClient('report-key.txt').upload(key, key.length, { blobHTTPHeaders: { blobContentType: 'text/plain' } });
+      return json({ ok: true, key });
+    } catch (err) {
+      return fail(context, err);
+    }
+  }
+});

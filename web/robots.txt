@@ -1,0 +1,5 @@
+User-agent: *
+Disallow: /admin
+Disallow: /api/
+Allow: /api/sitemap
+Sitemap: https://www.gigsintoon.co.uk/sitemap.xml
