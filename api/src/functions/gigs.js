@@ -57,6 +57,7 @@ app.http('gig', {
 });
 
 // POST /api/manage/gig  (owner) – add or update a gig, matched on date + headliner.
+// (pass id to update a specific gig, including moving its date)
 // { date:"2008-02-24", bands:["Jimmy Eat World","Support"], venue:"O2 Academy Newcastle", city:"Newcastle",
 //   tour, writeUp, status:"Posted", setlist:[{band, songs:[...]}], setlistUrl, playlistUrl,
 //   images:[{path:"gig tickets/Feb 24 2008 Jimmy Eat World.JPG", kind:"Ticket"}] }
@@ -82,15 +83,15 @@ app.http('adminGig', {
         DECLARE @bandList TABLE (Ord INT, Name NVARCHAR(200));
         INSERT @bandList SELECT CAST([key] AS INT) + 1, [value] FROM OPENJSON(@bands);
         INSERT music.Bands (Name) SELECT l.Name FROM @bandList l WHERE NOT EXISTS (SELECT 1 FROM music.Bands x WHERE x.Name = l.Name);
-        DECLARE @gigId INT = (SELECT TOP 1 g.GigId FROM music.Gigs g JOIN music.GigBands gb ON gb.GigId = g.GigId AND gb.BillOrder = 1
+        DECLARE @gigId INT = COALESCE((SELECT GigId FROM music.Gigs WHERE GigId = @id), (SELECT TOP 1 g.GigId FROM music.Gigs g JOIN music.GigBands gb ON gb.GigId = g.GigId AND gb.BillOrder = 1
                                 JOIN music.Bands x ON x.BandId = gb.BandId
-                               WHERE g.GigDate = @date AND x.Name = (SELECT Name FROM @bandList WHERE Ord = 1));
+                               WHERE g.GigDate = @date AND x.Name = (SELECT Name FROM @bandList WHERE Ord = 1)));
         IF @gigId IS NULL BEGIN
           INSERT music.Gigs (GigDate, VenueId, VenueAsBilled, TourName, WriteUp, Status)
           VALUES (@date, @venueId, @venueBilled, @tour, @writeUp, @status);
           SET @gigId = SCOPE_IDENTITY();
         END ELSE
-          UPDATE music.Gigs SET VenueId = COALESCE(@venueId, VenueId), VenueAsBilled = COALESCE(@venueBilled, VenueAsBilled),
+          UPDATE music.Gigs SET GigDate = @date, VenueId = COALESCE(@venueId, VenueId), VenueAsBilled = COALESCE(@venueBilled, VenueAsBilled),
                  TourName = COALESCE(@tour, TourName), WriteUp = COALESCE(@writeUp, WriteUp), Status = @status,
                  UpdatedAt = SYSUTCDATETIME()
            WHERE GigId = @gigId;
@@ -107,6 +108,7 @@ app.http('adminGig', {
         END
         COMMIT;
         SELECT @gigId AS GigId;`, {
+        id: [sql.Int, Number.isInteger(b.id) ? b.id : null],
         date: [sql.Date, b.date], bands: [sql.NVarChar(sql.MAX), JSON.stringify(bands)],
         venue: [sql.NVarChar(200), b.venue || null], venueBilled: [sql.NVarChar(200), b.venueAsBilled || null], city: [sql.NVarChar(100), b.city || null],
         tour: [sql.NVarChar(200), b.tour || null], writeUp: [sql.NVarChar(sql.MAX), b.writeUp || null],
