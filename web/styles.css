@@ -112,7 +112,7 @@ body{min-height:100vh;display:flex;flex-direction:column}body > main{flex:1 0 au
   .writeup{font-size:13px;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
   .card.open .writeup{display:block}
   .bar{flex-wrap:wrap;height:auto;padding:8px 16px;gap:8px}.nav{order:3;width:100%;margin:0;gap:18px}.search{max-width:none;order:2;flex-basis:100%}.social{margin-left:auto}
-  .adminbar .wrap{padding:6px 16px;gap:6px}.adminbar .signout{margin-left:0}.favs{grid-template-columns:1fr}.gig{flex-direction:column}.gig img{width:100%}}
+  .adminbar .wrap{padding:6px 16px;gap:6px}.adminbar .signout{display:inline-block;margin-left:0}.adminbar .anav{width:100%}.nav{overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.nav a{white-space:nowrap}.favs{grid-template-columns:1fr}.gig{flex-direction:column}.gig img{width:100%}}
 
 body.holding > header, body.holding > main, body.holding > footer{display:none}
 .countdown{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:32px 16px;text-align:center;
