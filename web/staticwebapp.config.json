@@ -7,6 +7,8 @@
     { "route": "/privacy", "rewrite": "/privacy.html" },
     { "route": "/contact", "rewrite": "/contact.html" },
     { "route": "/admin/add", "rewrite": "/add.html", "allowedRoles": ["owner"] },
+    { "route": "/admin/todo", "rewrite": "/todo.html", "allowedRoles": ["owner"] },
+    { "route": "/todo.*", "allowedRoles": ["owner"] },
     { "route": "/admin/messages", "rewrite": "/messages.html", "allowedRoles": ["owner"] },
     { "route": "/add.*", "allowedRoles": ["owner"] },
     { "route": "/messages.*", "allowedRoles": ["owner"] },

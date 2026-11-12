@@ -131,3 +131,38 @@ app.http('adminSiteAdditions', {
     }
   }
 });
+
+// GET/POST /api/manage/todos  – the admin to-do list (import/todos.json)
+// POST {action:'add', title, detail, owner} | {action:'update', id, done?, title?, detail?, owner?} | {action:'delete', id}
+app.http('adminTodos', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  route: 'manage/todos',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const list = await readJson('todos.json', []);
+      if (request.method === 'GET') return json({ todos: list });
+      const b = await request.json();
+      const now = new Date().toISOString();
+      if (b.action === 'add') {
+        if (!String(b.title || '').trim()) return json({ ok: false, error: 'Give it a title.' }, 400);
+        list.push({ id: crypto.randomBytes(4).toString('hex'), title: String(b.title).trim().slice(0, 300),
+          detail: String(b.detail || '').trim().slice(0, 3000), owner: b.owner === 'Claude' ? 'Claude' : 'Michael',
+          done: false, created: now, doneAt: null });
+      } else if (b.action === 'update') {
+        const t = list.find(x => x.id === b.id);
+        if (!t) return json({ ok: false, error: 'Not found' }, 404);
+        if ('done' in b) { t.done = !!b.done; t.doneAt = t.done ? now : null; }
+        for (const k of ['title', 'detail', 'owner', 'answer']) if (k in b) t[k] = String(b[k] ?? '').slice(0, 3000);
+      } else if (b.action === 'delete') {
+        const i = list.findIndex(x => x.id === b.id);
+        if (i >= 0) list.splice(i, 1);
+      } else return json({ ok: false, error: 'Unknown action' }, 400);
+      await writeJson('todos.json', list);
+      return json({ ok: true, todos: list });
+    } catch (err) {
+      return fail(context, err);
+    }
+  }
+});
