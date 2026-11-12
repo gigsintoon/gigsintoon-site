@@ -140,7 +140,8 @@ app.http('onThisDay', {
           ORDER BY r.ReleaseYear DESC`,
         { m: [sql.Int, month], d: [sql.Int, day] });
       const handles = handlesFor(await handleMap(), [...releases, ...gigs].map(x => x.WriteUp));
-      return json({ month, day, releases, gigs, teasers, gigTeasers, handles, admin: all });
+      const remembering = await rememberingFor(month, day);
+      return json({ month, day, releases, gigs, teasers, gigTeasers, remembering, handles, admin: all });
     } catch (err) {
       return fail(context, err);
     }
@@ -512,6 +513,17 @@ const cleanName = n => String(n || '').replace(/[<>\u0000-\u001f]/g, '').replace
 const BAD_NAME = /f+u+c+k|c+u+n+t|sh[i1]t|n[i1]gg|wank|tw[a@]t|bastard|bitch|slag|whore|fag|retard|penis|vagina|dick/i;
 const boardTop = (list, n = 10) => list.slice().sort((a, b) => a.guesses - b.guesses || a.ms - b.ms).slice(0, n)
   .map(e => ({ id: e.id, name: e.name, guesses: e.guesses, ms: e.ms }));
+// "Remembering" cards: musicians who died on this day (list kept in blob import/remembering.json)
+async function rememberingFor(month, day) {
+  const list = (await readBlobJson('remembering.json', [])).filter(x => x.month === month && x.day === day);
+  if (!list.length) return [];
+  const names = [...new Set(list.flatMap(x => x.bands || []))];
+  const rows = names.length ? await query(`SELECT b.BandId, b.Name FROM music.Bands b WHERE b.Name IN (SELECT value FROM OPENJSON(@n))
+      AND EXISTS (SELECT 1 FROM music.Releases r WHERE r.BandId = b.BandId AND ${VISIBLE})`, { n: [sql.NVarChar(sql.MAX), JSON.stringify(names)] }) : [];
+  const ids = new Map(rows.map(r => [r.Name.toLowerCase(), r.BandId]));
+  return list.map(x => ({ name: x.name, year: x.year, age: x.age, note: x.note || null,
+    bands: (x.bands || []).filter(b => ids.has(b.toLowerCase())).map(b => ({ name: b, id: ids.get(b.toLowerCase()) })) }));
+}
 app.http('guess', {
   methods: ['GET', 'POST'],
   authLevel: 'anonymous',

@@ -183,3 +183,23 @@ app.http('adminReportKey', {
     }
   }
 });
+
+// POST /api/manage/remembering  (owner) body: [{ month, day, name, year, age, bands:[...] }] -> replaces the list
+app.http('manageRemembering', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  route: 'manage/remembering',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      if (request.method === 'GET') return json(await readJson('remembering.json', []));
+      const b = await request.json();
+      if (!Array.isArray(b)) return json({ ok: false, error: 'Send a list' }, 400);
+      const clean = b.filter(r => r.name && r.month >= 1 && r.month <= 12 && r.day >= 1 && r.day <= 31)
+        .map(r => ({ month: +r.month, day: +r.day, name: String(r.name).slice(0, 100), year: +r.year || null, age: +r.age || null,
+                     note: r.note ? String(r.note).slice(0, 300) : null, bands: (r.bands || []).map(String).slice(0, 8) }));
+      await writeJson('remembering.json', clean);
+      return json({ ok: true, count: clean.length });
+    } catch (err) { context.error(err); return json({ ok: false, error: err.message }, 500); }
+  }
+});

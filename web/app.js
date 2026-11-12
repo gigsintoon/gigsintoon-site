@@ -105,6 +105,18 @@ function listenLinks(r) {
 function gigWhen(g) { const d = new Date(g.GigDate); return `${ordinal(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`; }
 function gigCardDated(g) { return gigCard({ ...g, WriteUp: null }).replace(/Gig memory · \d{4}/, `Gig memory · ${gigWhen(g)}`); }
 
+function rememberCard(x) {
+  const yrs = x.year ? new Date().getUTCFullYear() - x.year : null;
+  const links = (x.bands || []).map(b => `<button class="bandlink" data-band="${b.id}">${esc(b.name)}</button>`);
+  return `<article class="remember">
+    <div class="rk">🕯️ Remembering</div>
+    <h3>${esc(x.name)}</h3>
+    <p>Died on this day in ${x.year}${x.age ? `, aged ${x.age}` : ''}${yrs ? ` – ${yrs} year${yrs === 1 ? '' : 's'} ago` : ''}.</p>
+    ${x.note ? `<p>${esc(x.note)}</p>` : ''}
+    ${links.length ? `<p class="muted">From my collection: ${links.join(' · ')}</p>` : ''}
+  </article>`;
+}
+
 function gigCard(g) {
   return `<div class="gig" data-gig="${g.GigId}" role="link" tabindex="0">
     ${g.ImageUrl ? `<img src="${esc(g.ImageUrl)}" alt="Gig ticket" loading="lazy">` : ''}
@@ -184,7 +196,7 @@ async function showDay(date) {
     $('daySummary').textContent = n
       ? `${n} release${n === 1 ? '' : 's'} on this day` + (nNew ? ` · ${nNew} new this year` : '')
       : '';
-    $('gigs').innerHTML = data.gigs.map(gigCard).join('') + (data.gigTeasers || []).map(gigTeaserCard).join('');
+    $('gigs').innerHTML = (data.remembering || []).map(rememberCard).join('') + data.gigs.map(gigCard).join('') + (data.gigTeasers || []).map(gigTeaserCard).join('');
     const teasers = data.teasers || [];
     $('releases').innerHTML = (n ? data.releases.map(r => releaseCard(r, { viewYear, isToday })).join('') : '')
       + teasers.map(teaserCard).join('')

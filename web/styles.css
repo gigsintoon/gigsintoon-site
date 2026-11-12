@@ -126,3 +126,5 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .lb li{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:6px 0}
 .lbn{width:28px;text-align:center;color:var(--muted)}.lbs{margin-left:auto;color:var(--muted);font-size:14px}.lbx{padding:2px 8px;font-size:12px}
 .lbform{flex-wrap:wrap;margin-top:14px;padding:12px;border:1px solid var(--accent);border-radius:10px}.lbform p{flex-basis:100%;margin:0 0 6px}
+.remember{background:linear-gradient(135deg,#1b1d21,#16171a);border:1px solid var(--line);border-left:4px solid #8a8f98;border-radius:12px;padding:14px 18px;margin:12px 0}
+.remember .rk{font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}.remember h3{margin:4px 0 6px;font-size:1.35rem}.remember p{margin:4px 0}
