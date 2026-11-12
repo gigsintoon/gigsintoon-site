@@ -326,7 +326,7 @@ async function showGuess() {
       `The title has <b>${h.titleWords}</b> word${h.titleWords === 1 ? '' : 's'} and starts with <b>${esc(h.titleLetter)}</b>.`,
       `The band name has <b>${h.bandWords}</b> word${h.bandWords === 1 ? '' : 's'}.`,
       `Last chance – the picture's nearly clear now!`];
-    let wrong = 0;
+    let wrong = 0, token = g.token;
     $('guessBody').innerHTML = `
       <div class="guess">
         <div class="gcover"><img src="/api/teaser/${g.id}?b=${BLUR[0]}" alt="This week's mystery cover"></div>
@@ -338,8 +338,13 @@ async function showGuess() {
           <p id="guessResult" class="muted" role="status">${g.tally.tries ? `${g.tally.correct} of ${g.tally.tries} guesses right so far this week.` : 'Be the first to have a go this week!'}</p>
           <p class="muted" style="font-size:14px">Every wrong guess makes the cover a bit clearer and gives you another clue. A new cover every Monday.</p>
           <button id="giveUp" type="button" class="ghost" hidden>I give up – show me</button>
+          <div id="boardJoin"></div>
         </div>
       </div>
+      <section class="board"><h2>This week's leaderboard</h2>
+        <p class="muted" style="font-size:14px">Fewest guesses wins; time from opening the page breaks a tie. Adding your name is optional.</p>
+        <div id="board">${boardHtml(g.board, g.admin)}</div></section>
+      ${g.lastBoard && g.lastBoard.length ? `<p class="muted">Last week's winner${g.lastBoard.length > 1 ? 's' : ''}: ${g.lastBoard.map((e, i) => `${['🥇', '🥈', '🥉'][i]} <b>${esc(e.name)}</b> (${e.guesses} guess${e.guesses === 1 ? '' : 'es'}, ${fmtTime(e.ms)})`).join(' &nbsp; ')}</p>` : ''}
       ${last && last.tally.tries ? `<h2>Last week's answer</h2>
         <div class="fav"><img src="${esc(last.cover)}" alt="" loading="lazy"><div><button class="artist" data-band="${last.bandId}">${esc(last.artist)}</button>
         <div class="title">${esc(last.title)} (${last.year})</div><div class="meta">${last.tally.correct} of ${last.tally.tries} guessed it</div></div></div>` : ''}`;
@@ -352,8 +357,13 @@ async function showGuess() {
     };
     $('guessForm').addEventListener('submit', async e => {
       e.preventDefault();
-      const r = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guess: e.target.guess.value }) }).then(x => x.json());
-      if (r.correct) { reveal(r.answer, wrong ? `🎉 Got it in ${wrong + 1}!` : '🎉 First time – spot on!'); return; }
+      const r = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guess: e.target.guess.value, token }) }).then(x => x.json());
+      if (r.token) token = r.token;
+      if (r.correct) {
+        reveal(r.answer, wrong ? `🎉 Got it in ${wrong + 1}!` : '🎉 First time – spot on!');
+        if (r.win) joinBoard(r);
+        return;
+      }
       wrong++;
       img.src = `/api/teaser/${g.id}?b=${BLUR[Math.min(wrong, BLUR.length - 1)]}`;
       if (CLUES[wrong]) $('clues').insertAdjacentHTML('beforeend', `<li class="new">${CLUES[wrong]}</li>`);
@@ -362,11 +372,37 @@ async function showGuess() {
       e.target.guess.select();
     });
     $('giveUp').addEventListener('click', async () => {
-      const r = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ giveUp: true }) }).then(x => x.json());
+      const r = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ giveUp: true, token }) }).then(x => x.json());
       if (r.answer) reveal(r.answer, 'It was');
     });
   } catch (e) { $('guessBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
+function fmtTime(ms) { const s = Math.round(ms / 1000); return s < 60 ? `${s}s` : s < 3600 ? `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s` : `${Math.floor(s / 3600)}h ${Math.floor(s / 60) % 60}m`; }
+function boardHtml(list, admin) {
+  if (!list || !list.length) return '<p class="empty">No one on the board yet – be the first!</p>';
+  return `<ol class="lb">${list.map((e, i) => `<li><span class="lbn">${i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1}</span><b>${esc(e.name)}</b>
+    <span class="lbs">${e.guesses} guess${e.guesses === 1 ? '' : 'es'} · ${fmtTime(e.ms)}</span>${admin ? ` <button class="ghost lbx" data-lbx="${esc(e.id)}" title="Remove">✕</button>` : ''}</li>`).join('')}</ol>`;
+}
+function joinBoard(r) {
+  $('boardJoin').innerHTML = `<form id="boardForm" class="gform lbform">
+      <p>You got it in <b>${r.guesses}</b> guess${r.guesses === 1 ? '' : 'es'} and <b>${fmtTime(r.ms)}</b>. Add your name to the leaderboard?</p>
+      <input name="name" placeholder="Your name" maxlength="24" autocomplete="nickname" required>
+      <button class="btn" type="submit">Add me</button>
+      <p id="boardMsg" class="muted" role="status"></p></form>`;
+  $('boardForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const res = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ board: true, name: e.target.name.value, win: r.win }) }).then(x => x.json());
+    if (!res.ok) { $('boardMsg').textContent = res.error || 'Something went wrong.'; return; }
+    $('board').innerHTML = boardHtml(res.board);
+    $('boardJoin').innerHTML = `<p>🏆 You're <b>${ordinal(res.place)}</b> of ${res.of} this week!</p>`;
+  });
+}
+document.addEventListener('click', async e => {
+  const x = e.target.closest('[data-lbx]');
+  if (!x) return;
+  const res = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ board: true, remove: x.dataset.lbx }) }).then(r => r.json());
+  if (res.ok) $('board').innerHTML = boardHtml(res.board, true);
+});
 
 // Favourite albums by year, plus what's coming up
 async function showFavourites(year) {

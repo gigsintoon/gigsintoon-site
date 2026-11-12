@@ -497,6 +497,21 @@ function isRight(guess, p) {
   if (g.length < 2) return false;
   return [p.Title, p.Artist].map(gnorm).some(t => t && (g === t || (t.length >= 4 && g.includes(t)) || (g.length >= 5 && t.includes(g) && g.length >= t.length * 0.6)));
 }
+
+// Leaderboard tokens: signed so guesses and time are counted by the server, not the browser
+const boardKey = () => crypto.createHash('sha256').update('guess-board|' + (process.env.STORAGE_CONNECTION_STRING || '')).digest();
+const signTok = o => { const b = Buffer.from(JSON.stringify(o)).toString('base64url'); return b + '.' + crypto.createHmac('sha256', boardKey()).update(b).digest('base64url'); };
+function readTok(t) {
+  const [b, m] = String(t || '').split('.');
+  if (!b || !m) return null;
+  const want = crypto.createHmac('sha256', boardKey()).update(b).digest('base64url');
+  if (want.length !== m.length || !crypto.timingSafeEqual(Buffer.from(want), Buffer.from(m))) return null;
+  try { return JSON.parse(Buffer.from(b, 'base64url').toString('utf8')); } catch { return null; }
+}
+const cleanName = n => String(n || '').replace(/[<>\u0000-\u001f]/g, '').replace(/\s+/g, ' ').trim().slice(0, 24);
+const BAD_NAME = /f+u+c+k|c+u+n+t|sh[i1]t|n[i1]gg|wank|tw[a@]t|bastard|bitch|slag|whore|fag|retard|penis|vagina|dick/i;
+const boardTop = (list, n = 10) => list.slice().sort((a, b) => a.guesses - b.guesses || a.ms - b.ms).slice(0, n)
+  .map(e => ({ id: e.id, name: e.name, guesses: e.guesses, ms: e.ms }));
 app.http('guess', {
   methods: ['GET', 'POST'],
   authLevel: 'anonymous',
@@ -510,10 +525,36 @@ app.http('guess', {
       const tally = await readBlobJson(`guess/${week}.json`, { tries: 0, correct: 0 });
       if (request.method === 'POST') {
         const b = await request.json().catch(() => ({}));
+        const boardPath = `guess/${week}-board.json`;
+        if (b.board) {
+          const list = await readBlobJson(boardPath, []);
+          if (b.remove && isOwner(request)) {
+            const left = list.filter(e => e.id !== b.remove);
+            await writeBlobJson(boardPath, left);
+            return json({ ok: true, board: boardTop(left) });
+          }
+          const w = readTok(b.win);
+          if (!w || !w.win || w.w !== week) return json({ ok: false, error: 'That win has expired – have another go next week!' }, 400);
+          if (Date.now() - w.at > 30 * 60000) return json({ ok: false, error: 'Too late to add your name for that win, sorry.' }, 400);
+          const name = cleanName(b.name);
+          if (name.length < 2) return json({ ok: false, error: 'Please enter a name (2–24 characters).' }, 400);
+          if (BAD_NAME.test(name.replace(/[^a-z0-9]/gi, ''))) return json({ ok: false, error: 'Please choose a different name.' }, 400);
+          if (list.some(e => e.id === w.id)) return json({ ok: false, error: "You're already on the board!" }, 400);
+          list.push({ id: w.id, name, guesses: w.n, ms: w.ms, at: new Date().toISOString() });
+          await writeBlobJson(boardPath, list);
+          const ranked = list.slice().sort((a, c) => a.guesses - c.guesses || a.ms - c.ms);
+          return json({ ok: true, place: ranked.findIndex(e => e.id === w.id) + 1, of: list.length, board: boardTop(list) });
+        }
+        const tk = readTok(b.token);
+        const started = tk && tk.w === week ? tk : { w: week, t: Date.now(), n: 0, x: true };
         const ok = !b.giveUp && isRight(b.guess, p);
         if (!b.giveUp) { tally.tries++; if (ok) tally.correct++; await writeBlobJson(`guess/${week}.json`, tally); }
         if (!ok && b.giveUp) return json({ correct: false, gaveUp: true, answer: { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl, month: p.ReleaseMonth, day: p.ReleaseDay }, tally });
-        return json({ correct: ok, answer: ok ? { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl,
+        const n = (started.n || 0) + (b.giveUp ? 0 : 1);
+        const extra = ok && !started.x && !started.gaveUp
+          ? { win: signTok({ w: week, win: true, n, ms: Date.now() - started.t, at: Date.now(), id: crypto.randomBytes(6).toString('hex') }), guesses: n, ms: Date.now() - started.t }
+          : { token: signTok({ ...started, n, gaveUp: started.gaveUp || !!b.giveUp }) };
+        return json({ correct: ok, ...extra, answer: ok ? { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl,
                       month: p.ReleaseMonth, day: p.ReleaseDay } : null, tally });
       }
       const last = ukWeek(new Date(Date.now() - 7 * 86400000));
@@ -523,7 +564,10 @@ app.http('guess', {
       const tw = p.Title.trim().split(/\s+/);
       const hints = { titleLetter: p.Title.replace(/^the\s+/i, '').charAt(0).toUpperCase(), titleWords: tw.length,
                       bandWords: p.Artist.trim().split(/\s+/).length, month: p.ReleaseMonth };
-      return json({ week, id: p.ReleaseId, year: p.ReleaseYear, type: p.ReleaseType, letter, hints, tally,
+      const board = boardTop(await readBlobJson(`guess/${week}-board.json`, []));
+      const lastBoard = boardTop(await readBlobJson(`guess/${last}-board.json`, []), 3);
+      return json({ week, id: p.ReleaseId, year: p.ReleaseYear, type: p.ReleaseType, letter, hints, tally, board, lastBoard,
+                    token: signTok({ w: week, t: Date.now(), n: 0 }), admin: isOwner(request),
                     lastWeek: lp ? { artist: lp.Artist, title: lp.Title, year: lp.ReleaseYear, cover: lp.CoverUrl, bandId: lp.BandId, tally: lt } : null });
     } catch (err) { return fail(context, err); }
   }

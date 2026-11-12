@@ -121,3 +121,8 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .cd-clock span{font-size:clamp(.7rem,2.5vw,.9rem);text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
 .cd-when{font-size:clamp(1.05rem,3.5vw,1.35rem);font-weight:700;margin:0 0 14px}.cd-follow{color:var(--muted)}
 .cd-admin{margin-top:26px}
+
+.board{margin:10px 0 24px}.lb{list-style:none;padding:0;margin:8px 0;max-width:560px}
+.lb li{display:flex;align-items:center;gap:10px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin:6px 0}
+.lbn{width:28px;text-align:center;color:var(--muted)}.lbs{margin-left:auto;color:var(--muted);font-size:14px}.lbx{padding:2px 8px;font-size:12px}
+.lbform{flex-wrap:wrap;margin-top:14px;padding:12px;border:1px solid var(--accent);border-radius:10px}.lbform p{flex-basis:100%;margin:0 0 6px}
