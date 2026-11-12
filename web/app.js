@@ -87,7 +87,7 @@ function releaseCard(r, { showDate = false, viewYear = null, isToday = false } =
       <div class="year">${esc(when)} ${flag}</div>
       <button class="artist" data-band="${r.BandId}">${esc(r.Artist)}</button>
       <div class="title">${esc(r.Title)}</div>
-      <div class="meta">${esc([r.ReleaseType, chart, note, r.Label].filter(Boolean).join(' · '))}</div>
+      <div class="meta">${esc([isMoment(r) ? 'Moment in time' : r.ReleaseType, chart, note, r.Label].filter(Boolean).join(' · '))}</div>
       ${r.WriteUp ? `<div class="writeup">${renderWriteUp(r.WriteUp)}</div>` : ''}
       ${listenLinks(r)}
       ${status ? `<div class="badges">${status}</div>` : ''}
@@ -96,7 +96,10 @@ function releaseCard(r, { showDate = false, viewYear = null, isToday = false } =
 }
 
 // Listen links search each service for "band title" (no accounts or keys needed)
+// "Other" rows that are moments rather than records (a first gig, the day a band formed) get no listen links
+const isMoment = r => r.ReleaseType === 'Other' && /\b(gig|got together|formed|first show|birthday|anniversary)\b/i.test(r.Title || '');
 function listenLinks(r) {
+  if (isMoment(r)) return '';
   const q = encodeURIComponent(`${r.Artist} ${r.Title}`.replace(/\s+(EP|Single|CD[12])$/i, ''));
   return `<div class="listen"><span>Listen:</span>
     <a href="https://music.apple.com/gb/search?term=${q}" target="_blank" rel="noopener">Apple Music</a>
