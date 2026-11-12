@@ -774,6 +774,7 @@ app.http('health', {
 });
 
 // Small thumbnails of our own covers, so pages with lots of covers stay light
+const thumbCache = new Map();
 const MEDIA_PREFIX = 'https://gigsintoonmedia.blob.core.windows.net/media/';
 app.http('thumb', {
   methods: ['GET'],
@@ -785,8 +786,57 @@ app.http('thumb', {
     if (!u.startsWith(MEDIA_PREFIX) || u.includes('..')) return { status: 400, body: 'bad url' };
     const size = Math.min(400, Math.max(48, parseInt(request.query.get('s') || '160', 10) || 160));
     try {
-      const body = await sharp()(await fetchImage(u)).resize(size, size, { fit: 'cover' }).jpeg({ quality: 78 }).toBuffer();
+      const ck = size + '|' + u;
+      let body = thumbCache.get(ck);
+      if (!body) {
+        body = await sharp()(await fetchImage(u)).resize(size, size, { fit: 'cover' }).jpeg({ quality: 78 }).toBuffer();
+        thumbCache.set(ck, body);
+        if (thumbCache.size > 800) thumbCache.delete(thumbCache.keys().next().value);   // keep the newest 800 in memory
+      }
       return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=604800' } };
     } catch { return { status: 404, body: 'not found' }; }
+  }
+});
+
+// GET /api/week -> the next seven days in one go (counts and up to 12 small covers a day), cached 5 minutes
+const weekCache = new Map();
+app.http('week', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'week',
+  handler: async (request, context) => {
+    if (prelaunch(request)) return prelaunchResponse();
+    const all = seesAll(request);
+    const today = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date()));
+    const key = (all ? 'a' : 'v') + today.toISOString().slice(0, 10);
+    const hit = weekCache.get(key);
+    if (hit && Date.now() - hit.at < 5 * 60 * 1000) return json(hit.data);
+    try {
+      const days = [...Array(7)].map((_, i) => { const d = new Date(today.getTime() + i * 86400000); return { m: d.getUTCMonth() + 1, d: d.getUTCDate() }; });
+      const D = [sql.NVarChar(sql.MAX), JSON.stringify(days)];
+      const rel = await query(
+        `SELECT r.ReleaseId, r.ReleaseMonth AS M, r.ReleaseDay AS D, r.ReleaseYear AS Y, COALESCE(r.ArtistDisplay, b.Name) AS Artist, r.Title,
+                CASE WHEN ${all ? '1 = 1' : VISIBLE} THEN 1 ELSE 0 END AS Shown,
+                CASE WHEN NOT ${VISIBLE} AND r.Status <> 'DoNotPost' AND ISNULL(b.NeverPost, 0) = 0 AND NOT ${DAY_REACHED} THEN 1 ELSE 0 END AS Teaser,
+                (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS Cover
+           FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+           JOIN OPENJSON(@days) WITH (m INT '$.m', d INT '$.d') x ON x.m = r.ReleaseMonth AND x.d = r.ReleaseDay
+          ORDER BY r.ReleaseYear DESC`, { days: D });
+      const gigs = await query(
+        `SELECT g.GigMonth AS M, g.GigDay AS D, COUNT(*) AS N FROM music.Gigs g
+           JOIN OPENJSON(@days) WITH (m INT '$.m', d INT '$.d') x ON x.m = g.GigMonth AND x.d = g.GigDay
+          WHERE ${all ? '1 = 1' : `g.Status = 'Posted'`} GROUP BY g.GigMonth, g.GigDay`, { days: D });
+      const thumb = u => '/api/thumb?s=128&u=' + encodeURIComponent(u);
+      const data = { days: days.map(({ m, d }) => {
+        const rs = rel.filter(r => r.M === m && r.D === d);
+        const shown = all ? rs : rs.filter(r => r.Shown), teasers = all ? [] : rs.filter(r => !r.Shown && r.Teaser);
+        const thumbs = [...shown.filter(r => r.Cover).map(r => ({ u: thumb(r.Cover), t: `${r.Y} · ${r.Artist} – ${r.Title}` })),
+                        ...teasers.filter(r => r.Cover).map(r => ({ u: `/api/teaser/${r.ReleaseId}?b=14&s=128`, t: 'Mystery release', tz: true }))].slice(0, 12);
+        const g = gigs.find(x => x.M === m && x.D === d);
+        return { month: m, day: d, releases: shown.length + teasers.length, gigs: g ? g.N : 0, thumbs };
+      }) };
+      weekCache.set(key, { at: Date.now(), data });
+      return json(data);
+    } catch (err) { return fail(context, err); }
   }
 });

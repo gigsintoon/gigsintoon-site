@@ -550,7 +550,7 @@ app.http('adminSiteInfo', {
                                       SUM(p.reserved_page_count) * 8 AS KB
                                  FROM sys.dm_db_partition_stats p JOIN sys.tables t ON t.object_id = p.object_id JOIN sys.schemas s ON s.schema_id = t.schema_id
                                 GROUP BY s.name, t.name ORDER BY KB DESC`);
-        out.db = { kb: t.reduce((a, r) => a + r.KB, 0), tables: t };
+        t.forEach(r => { r.KB = Number(r.KB); r.Rows = Number(r.Rows); }); out.db = { kb: t.reduce((a, r) => a + r.KB, 0), tables: t };
       } catch (e) {
         const t = await query(`SELECT 'music.Releases' AS TableName, COUNT(*) AS Rows FROM music.Releases UNION ALL SELECT 'music.Bands', COUNT(*) FROM music.Bands
           UNION ALL SELECT 'music.Gigs', COUNT(*) FROM music.Gigs UNION ALL SELECT 'music.Images', COUNT(*) FROM music.Images`);
