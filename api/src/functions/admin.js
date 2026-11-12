@@ -587,3 +587,36 @@ app.http('adminSiteInfo', {
     } catch (err) { return failDetail(context, err); }
   }
 });
+
+// POST /api/manage/fix-names (owner) { titles: [{ id, title }], bands: [{ from, to }] }
+// Corrects spelling of release titles, and band names (merging into an existing band of the right name).
+app.http('adminFixNames', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/fix-names',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const b = await request.json();
+      const titles = (b.titles || []).filter(t => Number.isInteger(t.id) && String(t.title || '').trim());
+      let t = 0, bands = [];
+      if (titles.length) t = (await query(`UPDATE r SET r.Title = j.title, r.UpdatedAt = SYSUTCDATETIME()
+          FROM music.Releases r JOIN OPENJSON(@j) WITH (id INT, title NVARCHAR(400)) j ON j.id = r.ReleaseId;
+        SELECT @@ROWCOUNT AS n;`, { j: [sql.NVarChar(sql.MAX), JSON.stringify(titles)] }))[0].n;
+      for (const { from, to } of (b.bands || [])) {
+        if (!from || !to) continue;
+        const r = await query(`DECLARE @old INT = (SELECT BandId FROM music.Bands WHERE Name = @f), @new INT = (SELECT BandId FROM music.Bands WHERE Name = @t);
+          IF @old IS NULL SELECT 'not found' AS result
+          ELSE IF @new IS NULL BEGIN UPDATE music.Bands SET Name = @t, UpdatedAt = SYSUTCDATETIME() WHERE BandId = @old; SELECT 'renamed' AS result END
+          ELSE BEGIN
+            UPDATE music.Releases SET BandId = @new WHERE BandId = @old;
+            UPDATE gb SET BandId = @new FROM music.GigBands gb WHERE gb.BandId = @old AND NOT EXISTS (SELECT 1 FROM music.GigBands x WHERE x.GigId = gb.GigId AND x.BandId = @new);
+            DELETE music.GigBands WHERE BandId = @old;
+            DELETE music.Bands WHERE BandId = @old; SELECT 'merged' AS result END`,
+          { f: [sql.NVarChar(200), from], t: [sql.NVarChar(200), to] });
+        bands.push(`${from} → ${to}: ${r[0].result}`);
+      }
+      return json({ ok: true, titles: t, bands });
+    } catch (err) { return failDetail(context, err); }
+  }
+});
