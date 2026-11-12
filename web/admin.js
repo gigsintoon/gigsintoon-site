@@ -116,13 +116,30 @@ async function loadVisits() {
   } catch { $('visitBody').textContent = 'Couldn\'t load visitor numbers.'; }
 }
 
+let keyArmed = false;
 $('genKey').addEventListener('click', async () => {
-  if (!confirm('Make a new key? Any old key in GitHub will stop working until you paste this one in.')) return;
-  const r = await (await fetch('/api/manage/report-key', { method: 'POST' })).json();
-  $('keyOut').innerHTML = r.ok ? `<p>Your key (shown once – copy it now):</p><input readonly style="width:100%;max-width:560px;font-family:monospace" value="${esc(r.key)}" onclick="this.select()">
+  const btn = $('genKey');
+  if (!keyArmed) {
+    keyArmed = true; btn.textContent = 'Yes – make a new key';
+    $('keyOut').textContent = 'Click again to confirm. Any old key already in GitHub will stop working until you paste the new one in.';
+    return;
+  }
+  keyArmed = false; btn.disabled = true; btn.textContent = 'Making a key…';
+  try {
+    const res = await fetch('/api/manage/report-key', { method: 'POST' });
+    const text = await res.text();
+    let r = {}; try { r = JSON.parse(text); } catch { /* not JSON */ }
+    if (res.status === 401 || res.status === 403 || (!r.ok && /<html/i.test(text))) throw new Error('You look signed out – go to www.gigsintoon.co.uk/login, then try again.');
+    if (!r.ok || !r.key) throw new Error(r.error || `The site said ${res.status}.`);
+    $('keyOut').innerHTML = `<p>Your key (shown once – copy it now):</p><input id="keyBox" readonly style="width:100%;max-width:560px;font-family:monospace;padding:6px" value="${esc(r.key)}" onclick="this.select()">
+    <button id="copyKey" type="button" style="margin-top:6px">Copy key</button>
     <ol><li>Open <a href="https://github.com/gigsintoon/gigsintoon-site/settings/secrets/actions/new" target="_blank" rel="noopener">GitHub → gigsintoon-site → Settings → Secrets → Actions → New secret</a></li>
     <li>Name: <b>REPORT_KEY</b>, Secret: paste the key, then <b>Add secret</b>.</li>
-    <li>Optional test: <a href="https://github.com/gigsintoon/gigsintoon-site/actions/workflows/weekly-report.yml" target="_blank" rel="noopener">Actions → Weekly site report → Run workflow</a>.</li></ol>` : 'Could not make a key.';
+    <li>Optional test: <a href="https://github.com/gigsintoon/gigsintoon-site/actions/workflows/weekly-report.yml" target="_blank" rel="noopener">Actions → Weekly site report → Run workflow</a>.</li></ol>`;
+    $('copyKey').onclick = async () => { try { await navigator.clipboard.writeText($('keyBox').value); $('copyKey').textContent = 'Copied ✓'; } catch { $('keyBox').select(); } };
+  } catch (e) {
+    $('keyOut').textContent = 'Could not make a key: ' + e.message;
+  } finally { btn.disabled = false; btn.textContent = 'Generate a new key'; }
 });
 
 load();
