@@ -11,7 +11,7 @@
   <header class="top">
     <div class="wrap bar">
       <a class="brand" href="/">Gigs in <span>toon</span></a>
-      <nav class="nav"><a href="/">On this day</a><a class="on" href="/admin">Release list</a></nav>
+      <nav class="nav"><a href="/">On this day</a><a class="on" href="/admin">Release list</a><a href="#visits">Visitors</a></nav>
       <a class="signout" href="/logout" style="margin-left:auto">Sign out</a>
     </div>
   </header>
@@ -33,6 +33,10 @@
       <thead><tr><th>Day</th><th>Band</th><th>Title</th><th>Year</th><th>Chart</th><th>Notes</th><th title="Cover / write-up">Has</th><th></th></tr></thead>
       <tbody id="rows"><tr><td colspan="8" class="muted">Loading…</td></tr></tbody>
     </table>
+    <section id="visits" class="visits">
+      <h2>Visitors <span class="muted" style="font-size:14px;font-weight:400">(last 30 days, your own visits aren't counted)</span></h2>
+      <div id="visitBody" class="muted">Loading…</div>
+    </section>
   </main>
   <script src="/admin.js"></script>
 </body>

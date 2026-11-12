@@ -13,6 +13,7 @@
       <nav class="nav">
         <a id="navDay" data-nav="dayView" href="/">On this day</a>
         <a id="navFav" data-nav="favView" href="/?page=favourites">Favourites</a>
+        <a href="/about">About</a>
       </nav>
       <form id="searchForm" class="search" role="search">
         <input id="searchBox" type="search" placeholder="Search bands…" autocomplete="off" aria-label="Search bands">
@@ -58,6 +59,12 @@
     </section>
   </main>
 
+  <footer class="foot"><div class="wrap">
+    <span>© <span id="yr">2026</span> Gigs in toon</span>
+    <a href="/about">About</a><a href="/privacy">Privacy &amp; cookies</a>
+    <a href="https://x.com/gigsintoon" rel="noopener">X</a><a href="https://www.instagram.com/gigsintoon" rel="noopener">Instagram</a>
+  </div></footer>
+  <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
   <script src="/app.js"></script>
 </body>
 </html>

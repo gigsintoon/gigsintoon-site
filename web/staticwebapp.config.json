@@ -3,6 +3,8 @@
     { "route": "/.auth/*", "allowedRoles": ["anonymous", "authenticated"] },
     { "route": "/login", "redirect": "/.auth/login/aad?post_login_redirect_uri=/" },
     { "route": "/logout", "redirect": "/.auth/logout?post_logout_redirect_uri=/" },
+    { "route": "/about", "rewrite": "/about.html" },
+    { "route": "/privacy", "rewrite": "/privacy.html" },
     { "route": "/admin", "rewrite": "/admin.html", "allowedRoles": ["owner"] },
     { "route": "/admin.*", "allowedRoles": ["owner"] },
     { "route": "/api/manage/*", "allowedRoles": ["owner"] },

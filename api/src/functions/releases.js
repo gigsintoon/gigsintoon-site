@@ -86,8 +86,18 @@ app.http('onThisDay', {
           WHERE g.GigMonth = @m AND g.GigDay = @d ${all ? '' : `AND g.Status = 'Posted'`}
           ORDER BY g.GigDate DESC`,
         { m: [sql.Int, month], d: [sql.Int, day] });
+      // Visitors looking at a day that hasn't come round yet get clues instead: the year, the type,
+      // the band's first letter and a blurred cover (served through /api/teaser so the file name gives nothing away).
+      const teasers = all ? [] : await query(
+        `SELECT r.ReleaseId AS Id, r.ReleaseYear, r.ReleaseType, UPPER(LEFT(COALESCE(r.ArtistDisplay, b.Name), 1)) AS Letter,
+                CASE WHEN EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId) THEN 1 ELSE 0 END AS HasCover
+           FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+          WHERE r.ReleaseMonth = @m AND r.ReleaseDay = @d AND NOT ${VISIBLE}
+            AND r.Status <> 'DoNotPost' AND ISNULL(b.NeverPost, 0) = 0 AND NOT ${DAY_REACHED}
+          ORDER BY r.ReleaseYear DESC`,
+        { m: [sql.Int, month], d: [sql.Int, day] });
       const handles = handlesFor(await handleMap(), [...releases, ...gigs].map(x => x.WriteUp));
-      return json({ month, day, releases, gigs, handles, admin: all });
+      return json({ month, day, releases, gigs, teasers, handles, admin: all });
     } catch (err) {
       return fail(context, err);
     }
@@ -196,6 +206,95 @@ app.http('favourites', {
       // upcoming write-ups are usually still drafts, so visitors only get the basics
       if (!isOwner(request)) upcoming.forEach(r => { r.WriteUp = null; });
       return json({ years: favCache, upcoming });
+    } catch (err) {
+      return fail(context, err);
+    }
+  }
+});
+
+// GET /api/teaser/123 -> the cover of a release that's still to come, without its file name (shown blurred)
+app.http('teaser', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'teaser/{id:int}',
+  handler: async (request, context) => {
+    try {
+      const rows = await query(
+        `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Releases r ON r.ReleaseId = i.ReleaseId
+          WHERE r.ReleaseId = @id AND r.Status <> 'DoNotPost' ORDER BY i.SortOrder, i.ImageId`,
+        { id: [sql.Int, parseInt(request.params.id, 10)] });
+      if (!rows.length) return { status: 404 };
+      const r = await fetch(rows[0].PublicUrl);
+      if (!r.ok) return { status: 404 };
+      return { status: 200, body: Buffer.from(await r.arrayBuffer()),
+               headers: { 'Content-Type': r.headers.get('content-type') || 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };
+    } catch (err) {
+      return fail(context, err);
+    }
+  }
+});
+
+// POST /api/hit {path, ref}  -> counts a page view. No cookies and nothing personal is stored:
+// just the day, the page, where the visitor came from (site name only) and phone/desktop.
+let hitsReady = false;
+async function ensureHits() {
+  if (hitsReady) return;
+  await query(`IF OBJECT_ID('music.PageViews') IS NULL
+    CREATE TABLE music.PageViews (
+      ViewDate DATE NOT NULL, Path NVARCHAR(200) NOT NULL, RefHost NVARCHAR(200) NOT NULL, Device NVARCHAR(10) NOT NULL,
+      Views INT NOT NULL DEFAULT 0,
+      CONSTRAINT PK_PageViews PRIMARY KEY (ViewDate, Path, RefHost, Device))`);
+  hitsReady = true;
+}
+app.http('hit', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'hit',
+  handler: async (request, context) => {
+    if (isOwner(request)) return { status: 204 };           // don't count Micky's own visits
+    const ua = request.headers.get('user-agent') || '';
+    if (/bot|crawl|spider|preview|monitor/i.test(ua)) return { status: 204 };
+    try {
+      const b = await request.json().catch(() => ({}));
+      const path = String(b.path || '/').replace(/[?#].*$/, '').slice(0, 200) || '/';
+      let ref = '';
+      try { ref = b.ref ? new URL(b.ref).hostname.replace(/^www\./, '') : ''; } catch { ref = ''; }
+      if (/gigsintoon\.co\.uk$/.test(ref)) ref = '';
+      const device = /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop';
+      await ensureHits();
+      await query(`MERGE music.PageViews AS t
+        USING (SELECT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE) AS ViewDate, @p AS Path, @r AS RefHost, @d AS Device) s
+        ON t.ViewDate = s.ViewDate AND t.Path = s.Path AND t.RefHost = s.RefHost AND t.Device = s.Device
+        WHEN MATCHED THEN UPDATE SET Views = t.Views + 1
+        WHEN NOT MATCHED THEN INSERT (ViewDate, Path, RefHost, Device, Views) VALUES (s.ViewDate, s.Path, s.RefHost, s.Device, 1);`,
+        { p: [sql.NVarChar(200), path], r: [sql.NVarChar(200), ref.slice(0, 200)], d: [sql.NVarChar(10), device] });
+      return { status: 204 };
+    } catch (err) {
+      context.error(err);
+      return { status: 204 };
+    }
+  }
+});
+
+// GET /api/manage/visits?days=30 (owner only) -> page views by day, page and referrer
+app.http('visits', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'manage/visits',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    const days = Math.min(365, Math.max(1, parseInt(request.query.get('days'), 10) || 30));
+    try {
+      await ensureHits();
+      const p = { n: [sql.Int, days] };
+      const since = `DATEADD(day, -@n + 1, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE))`;
+      const byDay = await query(`SELECT ViewDate, SUM(Views) AS Views, SUM(CASE WHEN Device='mobile' THEN Views ELSE 0 END) AS Mobile
+        FROM music.PageViews WHERE ViewDate >= ${since} GROUP BY ViewDate ORDER BY ViewDate`, p);
+      const pages = await query(`SELECT TOP 20 Path, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since}
+        GROUP BY Path ORDER BY Views DESC`, p);
+      const refs = await query(`SELECT TOP 20 RefHost, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since} AND RefHost <> ''
+        GROUP BY RefHost ORDER BY Views DESC`, p);
+      return json({ days, byDay, pages, refs });
     } catch (err) {
       return fail(context, err);
     }

@@ -102,4 +102,19 @@ document.addEventListener('click', e => {
 ['fMissing', 'fHideRed'].forEach(id => $(id).addEventListener('change', render));
 $('fText').addEventListener('input', render);
 
+async function loadVisits() {
+  try {
+    const v = await (await fetch('/api/manage/visits?days=30')).json();
+    const total = v.byDay.reduce((s, d) => s + d.Views, 0), mob = v.byDay.reduce((s, d) => s + d.Mobile, 0);
+    const max = Math.max(1, ...v.byDay.map(d => d.Views));
+    const bars = v.byDay.map(d => `<div class="vbar" title="${d.ViewDate.slice(0, 10)}: ${d.Views}"><i style="height:${Math.round(d.Views / max * 100)}%"></i></div>`).join('');
+    const list = (rows, k) => rows.length ? '<ol>' + rows.map(r => `<li>${esc(r[k] || '(direct)')} <span class="muted">${r.Views}</span></li>`).join('') + '</ol>' : '<p class="muted">None yet.</p>';
+    $('visitBody').innerHTML = total
+      ? `<p><b>${total}</b> page views · ${Math.round(mob / total * 100)}% on phones</p><div class="vbars">${bars}</div>
+         <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div></div>`
+      : 'No visits counted yet – the site is still sign-in only, so this starts once it goes public.';
+  } catch { $('visitBody').textContent = 'Couldn\'t load visitor numbers.'; }
+}
+
 load();
+loadVisits();

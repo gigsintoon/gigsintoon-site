@@ -102,6 +102,18 @@ function gigCard(g) {
   </div>`;
 }
 
+// A release that's still to come this year: a clue and a blurred cover, for visitors to guess
+const TYPE_WORD = { Album: 'an album', Single: 'a single', EP: 'an EP', Live: 'a live album', Compilation: 'a compilation' };
+function teaserCard(t) {
+  const what = TYPE_WORD[t.ReleaseType] || 'a release';
+  return `<div class="card teaser">
+    <div class="cover">${t.HasCover ? `<img src="/api/teaser/${t.Id}" alt="Blurred cover – can you guess it?" loading="lazy">` : '<span>?</span>'}</div>
+    <div class="body"><div class="year">${esc(t.ReleaseYear)}</div>
+      <div>Coming up: ${what} from ${esc(t.ReleaseYear)} by a band beginning with <strong>${esc(t.Letter)}</strong>.</div>
+      <div class="meta">Can you guess it? Check back on the day.</div></div>
+  </div>`;
+}
+
 function showOnly(id) {
   for (const v of ['dayView', 'bandView', 'favView']) $(v).hidden = v !== id;
   document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
@@ -128,8 +140,11 @@ async function showDay(date) {
       ? `${n} release${n === 1 ? '' : 's'} on this day` + (nNew ? ` · ${nNew} new this year` : '')
       : '';
     $('gigs').innerHTML = data.gigs.map(gigCard).join('');
-    $('releases').innerHTML = n ? data.releases.map(r => releaseCard(r, { viewYear, isToday })).join('')
-      : '<p class="empty">Nothing recorded for this day yet.</p>';
+    const teasers = data.teasers || [];
+    $('releases').innerHTML = (n ? data.releases.map(r => releaseCard(r, { viewYear, isToday })).join('') : '')
+      + teasers.map(teaserCard).join('')
+      || '<p class="empty">Nothing recorded for this day yet.</p>';
+    if (teasers.length) $('daySummary').textContent += `${n ? ' · ' : ''}${teasers.length} still to come – guess them from the clues`;
   } catch (e) {
     $('daySummary').textContent = e.message;
   }
@@ -217,6 +232,8 @@ document.addEventListener('click', e => {
     cover.querySelectorAll('.cdtab').forEach(t => t.classList.toggle('on', t === tab));
     return;
   }
+  const wu = e.target.closest('.writeup');
+  if (wu && !e.target.closest('[data-band]')) { wu.closest('.card')?.classList.toggle('open'); return; }
   const fy = e.target.closest('[data-favyear]');
   if (fy) { showFavourites(fy.dataset.favyear); return; }
   const b = e.target.closest('[data-band]');
@@ -254,7 +271,16 @@ function route() {
   } else showDay(ukToday());
 }
 
+// Count the visit (no cookies, nothing personal – see /privacy)
+function countVisit() {
+  try {
+    fetch('/api/hit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
+      body: JSON.stringify({ path: location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: document.referrer }) });
+  } catch { /* ignore */ }
+}
+
 (async () => {
+  countVisit();
   try { isAdmin = !!(await (await fetch('/api/me')).json()).owner; } catch { isAdmin = false; }
   renderAdminBar();
   route();
