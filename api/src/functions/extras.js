@@ -71,16 +71,23 @@ app.http('adminMessages', {
         const name = `contact/${String(b.id).replace(/[^\w-]/g, '')}.json`;
         const m = await readJson(name, null);
         if (!m) return json({ ok: false, error: 'Not found' }, 404);
-        m.read = !!b.read;
+        if (b.action === 'purge') { await container().getBlockBlobClient(name).deleteIfExists(); return json({ ok: true }); }
+        if (b.action === 'delete') m.deletedAt = new Date().toISOString();
+        else if (b.action === 'restore') delete m.deletedAt;
+        else m.read = !!b.read;
         await writeJson(name, m);
         return json({ ok: true });
       }
-      const out = [];
+      // Messages in the bin are removed for good 30 days after they were deleted
+      const out = [], cutoff = Date.now() - 30 * 86400000;
       for await (const blob of container().listBlobsFlat({ prefix: 'contact/' })) {
-        out.push(await readJson(blob.name, null));
+        const m = await readJson(blob.name, null);
+        if (m && m.deletedAt && Date.parse(m.deletedAt) < cutoff) { await container().getBlockBlobClient(blob.name).deleteIfExists(); continue; }
+        out.push(m);
       }
       out.sort((a, b) => (b.at || '').localeCompare(a.at || ''));
-      return json({ messages: out.filter(Boolean) });
+      const all = out.filter(Boolean);
+      return json({ messages: all.filter(m => !m.deletedAt), bin: all.filter(m => m.deletedAt) });
     } catch (err) {
       return fail(context, err);
     }

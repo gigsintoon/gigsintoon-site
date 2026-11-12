@@ -635,7 +635,7 @@ app.http('report', {
       const messages = [];
       for await (const b of c.listBlobsFlat({ prefix: 'contact/' })) {
         const m = await readBlobJson(b.name, null);
-        if (m && !m.read) messages.push({ at: m.at, name: m.name, topic: m.topic, message: String(m.message).slice(0, 600), hasEmail: !!m.email });
+        if (m && !m.read && !m.deletedAt) messages.push({ at: m.at, name: m.name, topic: m.topic, message: String(m.message).slice(0, 600), hasEmail: !!m.email });
       }
       const todos = (await readBlobJson('todos.json', [])).filter(t => !t.done).map(t => ({ owner: t.owner, title: t.title, answer: t.answer || '' }));
       const additions = (await readBlobJson('site-additions.json', [])).length;

@@ -8,13 +8,13 @@
   },
   {
    "year": 2026,
-   "title": "Favourite albums of 2026",
+   "title": "My favourite albums of 2026",
    "note": "My top albums of 2026 will go up at the end of the year.",
    "albums": []
   },
   {
    "year": 2025,
-   "title": "Top 20 albums of 2025",
+   "title": "My favourite albums of 2025",
    "ranked": true,
    "albums": [
     {
@@ -51,7 +51,8 @@
     {
      "rank": 7,
      "artist": "The Darkness",
-     "title": "Dreams On Toast"
+     "title": "Dreams On Toast",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/The%20Darkness%20-%20Dreams%20On%20Toast.jpg"
     },
     {
      "rank": 8,
@@ -67,7 +68,8 @@
     {
      "rank": 10,
      "artist": "Press Club",
-     "title": "To All The Ones That I Love"
+     "title": "To All The Ones That I Love",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Press%20Club%20-%20To%20All%20The%20Ones%20That%20I%20Love.jpg"
     },
     {
      "rank": 11,
@@ -113,12 +115,14 @@
     {
      "rank": 19,
      "artist": "Shandon",
-     "title": "Social Suicide"
+     "title": "Social Suicide",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Shandon%20-%20Social%20Suicide.jpg"
     },
     {
      "rank": 20,
      "artist": "Mattstagraham",
-     "title": "Yellow Paint"
+     "title": "Yellow Paint",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Mattstagraham%20-%20Yellow%20Paint.jpg"
     }
    ],
    "extra": {
@@ -133,7 +137,7 @@
   },
   {
    "year": 2024,
-   "title": "Favourite albums of 2024",
+   "title": "My favourite albums of 2024",
    "ranked": false,
    "albums": [
     {
@@ -162,7 +166,8 @@
     },
     {
      "artist": "Dune Rats",
-     "title": "If It Sucks, Turn It Up"
+     "title": "If It Sucks, Turn It Up",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Dune%20Rats%20-%20If%20It%20Sucks%2C%20Turn%20It%20Up.jpg"
     },
     {
      "artist": "Terrorvision",
@@ -170,7 +175,8 @@
     },
     {
      "artist": "Half Past Two",
-     "title": "Talk Is Killing Me"
+     "title": "Talk Is Killing Me",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Half%20Past%20Two%20-%20Talk%20Is%20Killing%20Me.jpg"
     },
     {
      "artist": "State Champs",
@@ -190,7 +196,8 @@
     },
     {
      "artist": "Uzumaki",
-     "title": "Waded"
+     "title": "Waded",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Uzumaki%20-%20Waded.jpg"
     },
     {
      "artist": "Maximo Park",
@@ -222,7 +229,8 @@
     },
     {
      "artist": "Bilmuri",
-     "title": "AMERICAN MOTOR SPORTS"
+     "title": "AMERICAN MOTOR SPORTS",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Bilmuri%20-%20AMERICAN%20MOTOR%20SPORTS.jpg"
     },
     {
      "artist": "Sum 41",
@@ -234,13 +242,14 @@
     },
     {
      "artist": "Thieves Of Liberty",
-     "title": "Shangri-La"
+     "title": "Shangri-La",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Thieves%20Of%20Liberty%20-%20Shangri-La.jpg"
     }
    ]
   },
   {
    "year": 2023,
-   "title": "Favourite albums of 2023",
+   "title": "My favourite albums of 2023",
    "ranked": true,
    "albums": [
     {
@@ -256,7 +265,8 @@
     {
      "rank": 3,
      "artist": "The Pink Spiders",
-     "title": "Freakazoid"
+     "title": "Freakazoid",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/The%20Pink%20Spiders%20-%20Freakazoid.jpg"
     },
     {
      "rank": 4,
@@ -286,7 +296,8 @@
     {
      "rank": 9,
      "artist": "The Sherlocks",
-     "title": "People Like Me & You"
+     "title": "People Like Me & You",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/The%20Sherlocks%20-%20People%20Like%20Me%20%26%20You.jpg"
     },
     {
      "rank": 10,
@@ -296,7 +307,8 @@
     {
      "rank": 11,
      "artist": "Tearjerker",
-     "title": "Tearjerker"
+     "title": "Tearjerker",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Tearjerker%20-%20Tearjerker.jpg"
     },
     {
      "rank": 12,
@@ -306,7 +318,8 @@
     {
      "rank": 13,
      "artist": "Sincere Engineer",
-     "title": "Cheap Grills"
+     "title": "Cheap Grills",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Sincere%20Engineer%20-%20Cheap%20Grills.jpg"
     },
     {
      "rank": 14,
@@ -316,7 +329,8 @@
     {
      "rank": 15,
      "artist": "Mustard Plug",
-     "title": "Where Did All My Friends Go"
+     "title": "Where Did All My Friends Go",
+     "cover": "https://gigsintoonmedia.blob.core.windows.net/media/favourites/Mustard%20Plug%20-%20Where%20Did%20All%20My%20Friends%20Go.jpg"
     },
     {
      "rank": 16,
