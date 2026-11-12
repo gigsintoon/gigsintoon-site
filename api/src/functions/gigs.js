@@ -131,3 +131,31 @@ app.http('adminGig', {
     }
   }
 });
+
+// POST /api/manage/gig-image (owner) { gigId, path, kind } adds a photo; { gigId, url, remove: true } takes one off
+app.http('adminGigImage', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/gig-image',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const b = await request.json();
+      const gigId = parseInt(b.gigId, 10);
+      if (!gigId) return json({ ok: false, error: 'Give gigId' }, 400);
+      if (b.remove) {
+        await query(`DELETE music.Images WHERE GigId = @g AND PublicUrl = @u`, { g: [sql.Int, gigId], u: [sql.NVarChar(800), String(b.url || '')] });
+        return json({ ok: true });
+      }
+      const path = String(b.path || '').replace(/^\/+/, '');
+      if (!path || path.includes('..')) return json({ ok: false, error: 'Give path' }, 400);
+      const account = ((process.env.STORAGE_CONNECTION_STRING || '').match(/AccountName=([^;]+)/) || [])[1] || 'gigsintoonmedia';
+      const url = `https://${account}.blob.core.windows.net/media/` + path.split('/').map(encodeURIComponent).join('/');
+      await query(`INSERT music.Images (GigId, Kind, BlobPath, PublicUrl, SortOrder, Source)
+                    SELECT @g, @k, @p, @u, COALESCE(MAX(SortOrder), 0) + 1, 'Own photo' FROM music.Images WHERE GigId = @g`,
+        { g: [sql.Int, gigId], k: [sql.NVarChar(20), ['Ticket', 'Photo', 'Setlist', 'Poster'].includes(b.kind) ? b.kind : 'Photo'],
+          p: [sql.NVarChar(400), path], u: [sql.NVarChar(800), url] });
+      return json({ ok: true, url });
+    } catch (err) { context.error(err); return json({ ok: false, error: err.message }, 500); }
+  }
+});

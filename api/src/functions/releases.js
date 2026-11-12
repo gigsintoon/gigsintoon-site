@@ -11,7 +11,8 @@ const DAY_OK = (mcol, dcol) => `(${mcol} < MONTH(${UK_TODAY_EXPR}) OR (${mcol} =
 const UK_TODAY_EXPR = `CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)`;
 const GIG_COLS = `g.GigId, YEAR(g.GigDate) AS GigYear, g.GigDate, g.TourName, COALESCE(g.VenueAsBilled, v.Name) AS Venue,
   (SELECT STRING_AGG(b.Name, ' / ') WITHIN GROUP (ORDER BY gb.BillOrder) FROM music.GigBands gb JOIN music.Bands b ON b.BandId = gb.BandId WHERE gb.GigId = g.GigId) AS Bands,
-  (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.GigId = g.GigId ORDER BY i.SortOrder, i.ImageId) AS ImageUrl`;
+  (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.GigId = g.GigId ORDER BY i.SortOrder, i.ImageId) AS ImageUrl,
+  (SELECT COUNT(*) FROM music.Images i WHERE i.GigId = g.GigId) AS ImageCount`;
 const VENUE_NORM = `LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(COALESCE(v.Name, g.VenueAsBilled), ' Students'' Union', ''), ' Students’ Union', ''), ' Newcastle', '')))`;
 async function fetchImage(url) {
   const r = await fetch(url);
@@ -113,7 +114,8 @@ app.http('onThisDay', {
                    FROM music.GigBands gb JOIN music.Bands b ON b.BandId = gb.BandId
                   WHERE gb.GigId = g.GigId) AS Bands,
                 (SELECT TOP 1 i.PublicUrl FROM music.Images i
-                  WHERE i.GigId = g.GigId ORDER BY i.SortOrder, i.ImageId) AS ImageUrl
+                  WHERE i.GigId = g.GigId ORDER BY i.SortOrder, i.ImageId) AS ImageUrl,
+                (SELECT COUNT(*) FROM music.Images i WHERE i.GigId = g.GigId) AS ImageCount
            FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
           WHERE g.GigMonth = @m AND g.GigDay = @d ${all ? '' : `AND g.Status = 'Posted'`}
           ORDER BY g.GigDate DESC`,

@@ -120,7 +120,7 @@ function rememberCard(x) {
 function gigCard(g) {
   return `<div class="gig" data-gig="${g.GigId}" role="link" tabindex="0">
     ${g.ImageUrl ? `<img src="${esc(g.ImageUrl)}" alt="Gig ticket" loading="lazy">` : ''}
-    <div><div class="year">Gig memory · ${esc(g.GigYear)}</div>
+    <div><div class="year">Gig memory · ${esc(g.GigYear)}${g.ImageCount > 1 ? ` · 📷 ${g.ImageCount} photos` : ''}</div>
       <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at <button class="bandlink" data-venue="${esc(g.Venue)}">${esc(g.Venue)}</button>` : ''}
       ${g.TourName ? `<div class="meta">${esc(g.TourName)}</div>` : ''}
       ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}
@@ -140,6 +140,58 @@ function teaserCard(t) {
   </div>`;
 }
 
+// Shrink a photo in the browser before upload (max 2000px, JPEG)
+function shrink(file, max = 2000) {
+  return new Promise((res, rej) => {
+    const img = new Image();
+    img.onload = () => {
+      const k = Math.min(1, max / Math.max(img.width, img.height));
+      const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => b ? res(b) : rej(new Error('Could not read that image')), 'image/jpeg', 0.86);
+      URL.revokeObjectURL(img.src);
+    };
+    img.onerror = () => rej(new Error('Could not read that image'));
+    img.src = URL.createObjectURL(file);
+  });
+}
+async function addGigPhotos(g, files) {
+  const d = g.GigDate.slice(0, 10), head = (g.Bands[0] && g.Bands[0].Name || 'Gig').replace(/[\\/:*?"<>|]/g, '');
+  let n = g.Images.length;
+  for (const [i, f] of files.entries()) {
+    $('picMsg').textContent = `Uploading ${i + 1} of ${files.length}…`;
+    try {
+      const blob = await shrink(f);
+      const path = `gig photos/${d} ${head} ${++n}-${Date.now().toString(36)}.jpg`;
+      const up = await (await fetch('/api/manage/upload?path=' + encodeURIComponent(path), { method: 'POST', body: blob })).json();
+      if (!up.ok) throw new Error(up.error || 'Upload failed');
+      const r = await (await fetch('/api/manage/gig-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gigId: g.GigId, path, kind: 'Photo' }) })).json();
+      if (!r.ok) throw new Error(r.error || 'Could not attach photo');
+    } catch (e) { $('picMsg').textContent = `${f.name}: ${e.message}`; return; }
+  }
+  showGig(g.GigId);
+}
+// Tap a gig photo to see it full size
+function openPic(n) {
+  const list = window.__gigPics || []; if (!list.length) return;
+  let i = n;
+  const box = document.createElement('div'); box.className = 'lightbox'; box.tabIndex = -1;
+  const draw = () => { box.innerHTML = `<img src="${esc(list[i])}" alt="">${list.length > 1 ? `<button class="lbp" aria-label="Previous">‹</button><button class="lbn2" aria-label="Next">›</button><span class="lbc">${i + 1} / ${list.length}</span>` : ''}<button class="lbclose" aria-label="Close">✕</button>`; };
+  draw(); document.body.append(box); box.focus();
+  const close = () => { box.remove(); document.removeEventListener('keydown', key); };
+  const move = s => { i = (i + s + list.length) % list.length; draw(); };
+  const key = e => { if (e.key === 'Escape') close(); if (e.key === 'ArrowRight') move(1); if (e.key === 'ArrowLeft') move(-1); };
+  document.addEventListener('keydown', key);
+  box.addEventListener('click', e => { if (e.target.closest('.lbp')) move(-1); else if (e.target.closest('.lbn2')) move(1); else close(); });
+}
+document.addEventListener('click', async e => {
+  const p = e.target.closest('[data-pic]'); if (p) { openPic(+p.dataset.pic); return; }
+  const x = e.target.closest('[data-picx]'); if (!x) return;
+  if (x.dataset.armed !== '1') { x.dataset.armed = '1'; x.textContent = 'Remove?'; return; }
+  await fetch('/api/manage/gig-image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ gigId: +new URLSearchParams(location.search).get('gig'), url: x.dataset.picx, remove: true }) });
+  showGig(+new URLSearchParams(location.search).get('gig'));
+});
+
 async function showGig(id) {
   showOnly('gigView');
   history.replaceState(null, '', `/?gig=${id}`);
@@ -149,17 +201,21 @@ async function showGig(id) {
     const d = new Date(g.GigDate);
     const when = `${ordinal(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
     const bill = g.Bands.map(b => `<button class="bandlink" data-band="${b.BandId}">${esc(b.Name)}</button>`).join(' + ');
-    const pics = g.Images.map(i => `<img src="${esc(i.Url)}" alt="${esc(i.AltText || i.Kind)}" loading="lazy">`).join('');
+    const pics = g.Images.map((i, n) => `<figure><button class="pic" data-pic="${n}" aria-label="View larger"><img src="${esc(i.Url)}" alt="${esc(i.AltText || i.Kind)}" loading="lazy"></button>
+      ${isAdmin && !asVisitor ? `<button class="ghost picx" data-picx="${esc(i.Url)}" title="Remove this photo">✕</button>` : ''}</figure>`).join('');
+    window.__gigPics = g.Images.map(i => i.Url);
     const sets = (g.Setlist || []).map(s => `<div class="set"><h3>${esc(s.band)}</h3><ol>${(s.songs || []).map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`).join('');
     $('gigBody').innerHTML = `
       <div class="year">Gig memory · ${esc(when)}</div>
       <h1>${bill}</h1>
       <p class="muted">${esc([g.Venue, g.City].filter(Boolean).join(', '))}${g.TourName ? ` · ${esc(g.TourName)}` : ''}</p>
       ${g.PlaylistUrl ? `<p><a class="btn" href="${esc(g.PlaylistUrl)}" target="_blank" rel="noopener">▶ Listen to the setlist on Deezer</a></p>` : ''}
-      ${pics ? `<div class="gigpics">${pics}</div>` : ''}
+      ${pics ? `<div class="gigpics${g.Images.length > 1 ? ' many' : ''}">${pics}</div>` : ''}
+      ${isAdmin && !asVisitor ? `<p><label class="btn addpics">📷 Add photos<input id="addPics" type="file" accept="image/*" multiple hidden></label> <span id="picMsg" class="muted"></span></p>` : ''}
       ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}
       ${sets ? `<h2>Setlist</h2><div class="sets">${sets}</div>` : ''}
       ${g.SetlistUrl ? `<p class="meta">Setlist from <a href="${esc(g.SetlistUrl)}" target="_blank" rel="noopener">setlist.fm</a></p>` : ''}`;
+    $('addPics')?.addEventListener('change', e => addGigPhotos(g, [...e.target.files]));
   } catch (e) { $('gigBody').innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
 }
 
