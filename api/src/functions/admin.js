@@ -515,7 +515,7 @@ app.http('adminStatusOverrides', {
   }
 });
 
-// POST /api/manage/charts  { updates: [{ id, pos }] } — fills in UK chart peaks (only where none is set yet)
+// POST /api/manage/charts  { updates: [{ id, pos }], overwrite? } — sets UK chart peaks (by default only where none is set yet)
 app.http('adminCharts', {
   methods: ['POST'],
   authLevel: 'anonymous',
@@ -528,7 +528,7 @@ app.http('adminCharts', {
       if (!ups.length) return json({ ok: false, error: 'Nothing to update' }, 400);
       const r = await query(`UPDATE r SET r.ChartPosition = j.pos
           FROM music.Releases r JOIN OPENJSON(@j) WITH (id INT '$.id', pos INT '$.pos') j ON j.id = r.ReleaseId
-         WHERE r.ChartPosition IS NULL; SELECT @@ROWCOUNT AS n;`, { j: [sql.NVarChar(sql.MAX), JSON.stringify(ups)] });
+         WHERE ${b.overwrite === true ? '1 = 1' : 'r.ChartPosition IS NULL'}; SELECT @@ROWCOUNT AS n;`, { j: [sql.NVarChar(sql.MAX), JSON.stringify(ups)] });
       return json({ ok: true, updated: r[0] ? r[0].n : null });
     } catch (err) { return failDetail(context, err); }
   }
