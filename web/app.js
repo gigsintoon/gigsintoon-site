@@ -328,7 +328,7 @@ function showCountdown(launchAt, serverNow) {
   box.innerHTML = `
     <div class="cd-inner">
       <div class="cd-brand">Gigs in <span>toon</span></div>
-      <p class="cd-tag">Every release, every gig memory – on the day it happened.</p>
+      <p class="cd-tag">A lifetime of music I love – my collection and gig memories, on the day they happened.</p>
       <div class="cd-clock" aria-live="polite">
         <div><b id="cdD">0</b><span>days</span></div><div><b id="cdH">00</b><span>hours</span></div>
         <div><b id="cdM">00</b><span>minutes</span></div><div><b id="cdS">00</b><span>seconds</span></div>
