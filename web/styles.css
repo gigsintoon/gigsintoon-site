@@ -66,6 +66,8 @@ h2{margin:18px 0 4px}h3{margin:24px 0 4px}
 .gigpics{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin:16px 0}.gigpics img{width:100%;border-radius:8px}
 .sets{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:16px}.set ol{padding-left:22px;margin:6px 0}.set li{margin:2px 0}
 .btn{display:inline-block;background:var(--accent);color:#111;font-weight:700;text-decoration:none;padding:8px 14px;border-radius:8px}
+.social{display:flex;gap:6px;align-items:center}.nav + .social{margin-left:auto}.social a{display:flex;width:34px;height:34px;align-items:center;justify-content:center;border-radius:8px;color:var(--muted)}
+.social a:hover{color:var(--text);background:var(--line)}.social svg{width:18px;height:18px;fill:currentColor}
 .foot{border-top:1px solid var(--line);margin-top:40px;padding:18px 0 28px;font-size:14px;color:var(--muted)}
 .foot .wrap{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center}
 .foot a{color:var(--muted)}.foot a:hover{color:var(--text)}
@@ -78,5 +80,5 @@ h2{margin:18px 0 4px}h3{margin:24px 0 4px}
   .card{flex-direction:row}.card .cover{width:38%;flex:none;aspect-ratio:1/1;align-self:flex-start}.card .body{padding:10px 12px}
   .writeup{font-size:13px;display:-webkit-box;-webkit-line-clamp:6;-webkit-box-orient:vertical;overflow:hidden}
   .card.open .writeup{display:block}
-  .bar{flex-wrap:wrap;height:auto;padding:8px 16px;gap:8px}.nav{order:3;width:100%;margin:0;gap:18px}.search{max-width:none;order:2;flex-basis:100%}
+  .bar{flex-wrap:wrap;height:auto;padding:8px 16px;gap:8px}.nav{order:3;width:100%;margin:0;gap:18px}.search{max-width:none;order:2;flex-basis:100%}.social{margin-left:auto}
   .adminbar .wrap{height:auto;flex-wrap:wrap;padding:6px 16px;gap:8px}.favs{grid-template-columns:1fr}.gig{flex-direction:column}.gig img{width:100%}}
