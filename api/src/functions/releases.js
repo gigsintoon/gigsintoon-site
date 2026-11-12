@@ -428,14 +428,17 @@ app.http('stats', {
       if (statsCache && Date.now() - statsAt < 30 * 60 * 1000) return json(statsCache);
       const V = `FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE ${VISIBLE}`;
       const [tot] = await query(`SELECT COUNT(*) AS Releases, COUNT(DISTINCT r.BandId) AS Bands, MIN(r.ReleaseYear) AS FirstYear ${V}`);
-      const [gt] = await query(`SELECT COUNT(*) AS Gigs, COUNT(DISTINCT VenueId) AS Venues FROM music.Gigs WHERE Status = 'Posted'`);
+      const [gt] = await query(`SELECT COUNT(*) AS Gigs, COUNT(DISTINCT LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(COALESCE(v.Name, g.VenueAsBilled), ' Students'' Union', ''), ' Students’ Union', ''), ' Newcastle', '')))) AS Venues
+        FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId WHERE g.Status = 'Posted'`);
       const topBands = await query(`SELECT TOP 15 b.BandId, b.Name, COUNT(*) AS N ${V} GROUP BY b.BandId, b.Name ORDER BY N DESC, b.Name`);
       const decades = await query(`SELECT (r.ReleaseYear / 10) * 10 AS Decade, COUNT(*) AS N ${V} GROUP BY (r.ReleaseYear / 10) * 10 ORDER BY Decade`);
       const types = await query(`SELECT r.ReleaseType AS Type, COUNT(*) AS N ${V} GROUP BY r.ReleaseType ORDER BY N DESC`);
       const topYears = await query(`SELECT TOP 10 r.ReleaseYear AS Year, COUNT(*) AS N ${V} GROUP BY r.ReleaseYear ORDER BY N DESC`);
       const gigYears = await query(`SELECT YEAR(GigDate) AS Year, COUNT(*) AS N FROM music.Gigs WHERE Status = 'Posted' GROUP BY YEAR(GigDate) ORDER BY Year`);
-      const venues = await query(`SELECT TOP 10 COALESCE(v.Name, g.VenueAsBilled) AS Venue, COUNT(*) AS N FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
-                                   WHERE g.Status = 'Posted' AND COALESCE(v.Name, g.VenueAsBilled) IS NOT NULL GROUP BY COALESCE(v.Name, g.VenueAsBilled) ORDER BY N DESC`);
+      // "Newcastle University Students' Union" and "Newcastle University" are the same place
+      const VN = `LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(COALESCE(v.Name, g.VenueAsBilled), ' Students'' Union', ''), ' Students’ Union', ''), ' Newcastle', '')))`;
+      const venues = await query(`SELECT TOP 10 ${VN} AS Venue, COUNT(*) AS N FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
+                                   WHERE g.Status = 'Posted' AND COALESCE(v.Name, g.VenueAsBilled) IS NOT NULL GROUP BY ${VN} ORDER BY N DESC`);
       const gigBands = await query(`SELECT TOP 10 b.BandId, b.Name, COUNT(*) AS N FROM music.GigBands gb JOIN music.Gigs g ON g.GigId = gb.GigId JOIN music.Bands b ON b.BandId = gb.BandId
                                      WHERE g.Status = 'Posted' GROUP BY b.BandId, b.Name HAVING COUNT(*) > 1 ORDER BY N DESC, b.Name`);
       const charts = await query(`SELECT COUNT(*) AS Charted, SUM(CASE WHEN r.ChartPosition <= 10 THEN 1 ELSE 0 END) AS Top10, SUM(CASE WHEN r.ChartPosition = 1 THEN 1 ELSE 0 END) AS No1 ${V} AND r.ChartPosition IS NOT NULL`);
