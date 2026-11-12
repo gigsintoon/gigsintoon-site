@@ -73,7 +73,9 @@ function coverHtml(r) {
 }
 
 function releaseCard(r, { showDate = false, viewYear = null, isToday = false } = {}) {
-  const chart = r.ChartPosition ? `UK No. ${r.ChartPosition}` : '';
+  const chartName = /album|compilation|live/i.test(r.ReleaseType || '') ? 'UK Albums Chart' : 'UK Singles Chart';
+  const chart = r.ChartPosition ? `${chartName} No. ${r.ChartPosition}` : '';
+  const note = isAdmin && !asVisitor ? r.ChartNote : null;   // chart notes are Michael's own jottings
   const when = showDate ? `${ordinal(r.ReleaseDay)} ${MONTHS[r.ReleaseMonth - 1]} ${r.ReleaseYear}` : r.ReleaseYear;
   const isNew = viewYear && r.ReleaseYear === viewYear;
   const flag = isNew ? `<span class="newflag">${isToday ? 'NEW · Out today' : 'NEW'}</span>` : '';
@@ -85,7 +87,7 @@ function releaseCard(r, { showDate = false, viewYear = null, isToday = false } =
       <div class="year">${esc(when)} ${flag}</div>
       <button class="artist" data-band="${r.BandId}">${esc(r.Artist)}</button>
       <div class="title">${esc(r.Title)}</div>
-      <div class="meta">${esc([r.ReleaseType, chart, r.ChartNote, r.Label].filter(Boolean).join(' · '))}</div>
+      <div class="meta">${esc([r.ReleaseType, chart, note, r.Label].filter(Boolean).join(' · '))}</div>
       ${r.WriteUp ? `<div class="writeup">${renderWriteUp(r.WriteUp)}</div>` : ''}
       ${listenLinks(r)}
       ${status ? `<div class="badges">${status}</div>` : ''}
