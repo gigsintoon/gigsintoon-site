@@ -547,10 +547,10 @@ function route() {
 }
 
 // Count the visit (no cookies, nothing personal – see /privacy)
-function countVisit() {
+function countVisit(as) {
   try {
     fetch('/api/hit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-      body: JSON.stringify({ path: location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: document.referrer }) });
+      body: JSON.stringify({ path: as || location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: document.referrer }) });
   } catch { /* ignore */ }
 }
 
@@ -591,12 +591,12 @@ function showCountdown(launchAt, serverNow) {
 }
 
 (async () => {
-  countVisit();
   let launch = { live: true };
   try { launch = await (await fetch('/api/launch', { cache: 'no-store' })).json(); } catch { /* assume live */ }
   isAdmin = !!launch.owner;
   if (launch.owner === undefined) { try { isAdmin = !!(await (await fetch('/api/me')).json()).owner; } catch { isAdmin = false; } }
-  if (!launch.live && (!isAdmin || asVisitor)) { showCountdown(launch.launchAt, launch.now); return; }
+  if (!launch.live && (!isAdmin || asVisitor)) { countVisit('/countdown'); showCountdown(launch.launchAt, launch.now); return; }
+  countVisit();
   renderAdminBar();
   route();
 })();
