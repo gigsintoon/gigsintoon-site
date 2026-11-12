@@ -490,9 +490,9 @@ app.http('guess', {
       const tally = await readBlobJson(`guess/${week}.json`, { tries: 0, correct: 0 });
       if (request.method === 'POST') {
         const b = await request.json().catch(() => ({}));
-        const ok = isRight(b.guess, p);
-        tally.tries++; if (ok) tally.correct++;
-        await writeBlobJson(`guess/${week}.json`, tally);
+        const ok = !b.giveUp && isRight(b.guess, p);
+        if (!b.giveUp) { tally.tries++; if (ok) tally.correct++; await writeBlobJson(`guess/${week}.json`, tally); }
+        if (!ok && b.giveUp) return json({ correct: false, gaveUp: true, answer: { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl, month: p.ReleaseMonth, day: p.ReleaseDay }, tally });
         return json({ correct: ok, answer: ok ? { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl,
                       month: p.ReleaseMonth, day: p.ReleaseDay } : null, tally });
       }
@@ -500,7 +500,10 @@ app.http('guess', {
       const lp = await puzzleFor(last);
       const lt = await readBlobJson(`guess/${last}.json`, { tries: 0, correct: 0 });
       const letter = p.Artist.replace(/^the\s+/i, '').charAt(0).toUpperCase();
-      return json({ week, id: p.ReleaseId, year: p.ReleaseYear, type: p.ReleaseType, letter, tally,
+      const tw = p.Title.trim().split(/\s+/);
+      const hints = { titleLetter: p.Title.replace(/^the\s+/i, '').charAt(0).toUpperCase(), titleWords: tw.length,
+                      bandWords: p.Artist.trim().split(/\s+/).length, month: p.ReleaseMonth };
+      return json({ week, id: p.ReleaseId, year: p.ReleaseYear, type: p.ReleaseType, letter, hints, tally,
                     lastWeek: lp ? { artist: lp.Artist, title: lp.Title, year: lp.ReleaseYear, cover: lp.CoverUrl, bandId: lp.BandId, tally: lt } : null });
     } catch (err) { return fail(context, err); }
   }

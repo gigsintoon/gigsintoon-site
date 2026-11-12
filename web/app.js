@@ -250,7 +250,7 @@ async function showStats() {
       <div class="tiles">
         <div><b>${t.Releases.toLocaleString('en-GB')}</b><span>releases</span></div>
         <div><b>${t.Bands}</b><span>bands</span></div>
-        <div><b>${t.Gigs}</b><span>gig memories</span></div>
+        <div><b>${t.Gigs}</b><span>gig memories (and counting)</span></div>
         <div><b>${t.Venues}</b><span>venues</span></div>
         <div><b>${t.No1 || 0}</b><span>UK number ones</span></div>
         <div><b>${t.Top10 || 0}</b><span>UK top tens</span></div>
@@ -260,14 +260,15 @@ async function showStats() {
         <section><h2>Releases by decade</h2>${bars(s.decades, r => r.Decade + 's')}</section>
         <section><h2>Busiest years</h2>${bars(s.topYears, null, 'N', r => `<button class="bandlink" data-year="${r.Year}">${r.Year}</button>`)}</section>
         <section><h2>Albums, singles & EPs</h2>${bars(s.types, r => r.Type)}</section>
-        <section><h2>Gigs by year</h2>${bars(s.gigYears, r => r.Year)}</section>
-        <section><h2>Most-visited venues</h2>${bars(s.venues, r => r.Venue)}</section>
+        <section><h2>Gigs by year</h2><p class="wip">🎫 Gig memories are a work in progress – more tickets and setlists are being added all the time.</p>${bars(s.gigYears, r => r.Year)}</section>
+        <section><h2>Most-visited venues</h2><p class="wip">So far – still adding gigs!</p>${bars(s.venues, r => r.Venue)}</section>
         ${s.gigBands.length ? `<section><h2>Seen live most</h2>${bars(s.gigBands, null, 'N', bandLink)}</section>` : ''}
       </div>`;
   } catch (e) { $('statsBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
 
 // Guess the cover – one a week
+const MONTH_NAMES = MONTHS;
 async function showGuess() {
   showOnly('guessView');
   history.replaceState(null, '', '/?page=guess');
@@ -275,32 +276,52 @@ async function showGuess() {
     const g = await api('guess');
     const what = TYPE_WORD[g.type] || 'a release';
     const last = g.lastWeek;
+    const h = g.hints || {};
+    // Each wrong guess sharpens the picture and unlocks another clue
+    const BLUR = [9, 6, 4, 2.5, 1.2];
+    const CLUES = [
+      `It's ${what} from <b>${g.year}</b>, by a band beginning with <b>${esc(g.letter)}</b>.`,
+      `It came out in <b>${MONTH_NAMES[(h.month || 1) - 1]}</b>.`,
+      `The title has <b>${h.titleWords}</b> word${h.titleWords === 1 ? '' : 's'} and starts with <b>${esc(h.titleLetter)}</b>.`,
+      `The band name has <b>${h.bandWords}</b> word${h.bandWords === 1 ? '' : 's'}.`,
+      `Last chance – the picture's nearly clear now!`];
+    let wrong = 0;
     $('guessBody').innerHTML = `
       <div class="guess">
-        <div class="gcover"><img src="/api/teaser/${g.id}" alt="This week's blurred cover"></div>
+        <div class="gcover"><img src="/api/teaser/${g.id}" alt="This week's mystery cover" style="--b:${BLUR[0]}px"></div>
         <div class="gside">
-          <p class="lead">This week's mystery cover is ${what} from <b>${g.year}</b>, by a band beginning with <b>${esc(g.letter)}</b>.</p>
+          <p class="lead">Can you name this week's mystery cover? Guess the band or the title.</p>
+          <ul id="clues" class="clues"><li>${CLUES[0]}</li></ul>
           <form id="guessForm" class="gform"><input name="guess" placeholder="Band or title…" autocomplete="off" maxlength="120" required>
             <button class="btn" type="submit">Guess</button></form>
           <p id="guessResult" class="muted" role="status">${g.tally.tries ? `${g.tally.correct} of ${g.tally.tries} guesses right so far this week.` : 'Be the first to have a go this week!'}</p>
-          <p class="muted" style="font-size:14px">A new cover every Monday. The answer's revealed the week after.</p>
+          <p class="muted" style="font-size:14px">Every wrong guess makes the cover a bit clearer and gives you another clue. A new cover every Monday.</p>
+          <button id="giveUp" type="button" class="ghost" hidden>I give up – show me</button>
         </div>
       </div>
       ${last && last.tally.tries ? `<h2>Last week's answer</h2>
         <div class="fav"><img src="${esc(last.cover)}" alt="" loading="lazy"><div><button class="artist" data-band="${last.bandId}">${esc(last.artist)}</button>
         <div class="title">${esc(last.title)} (${last.year})</div><div class="meta">${last.tally.correct} of ${last.tally.tries} guessed it</div></div></div>` : ''}`;
+    const img = document.querySelector('.gcover img');
+    const reveal = (a, text) => {
+      img.src = a.cover; img.style.setProperty('--b', '0px'); document.querySelector('.gcover').classList.add('revealed');
+      $('guessResult').innerHTML = `${text} <b>${esc(a.artist)} – ${esc(a.title)}</b> (${a.year}). <a href="/?date=${String(a.month).padStart(2, '0')}-${String(a.day).padStart(2, '0')}">See it on its day</a>`;
+      $('guessForm').remove(); $('giveUp').remove();
+    };
     $('guessForm').addEventListener('submit', async e => {
       e.preventDefault();
       const r = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ guess: e.target.guess.value }) }).then(x => x.json());
-      if (r.correct) {
-        const a = r.answer;
-        document.querySelector('.gcover img').src = a.cover;
-        document.querySelector('.gcover').classList.add('revealed');
-        $('guessResult').innerHTML = `🎉 Spot on – <b>${esc(a.artist)} – ${esc(a.title)}</b> (${a.year}). <a href="/?date=${String(a.month).padStart(2, '0')}-${String(a.day).padStart(2, '0')}">See it on its day</a>`;
-        e.target.remove();
-      } else {
-        $('guessResult').textContent = 'Not quite – have another go!';
-      }
+      if (r.correct) { reveal(r.answer, wrong ? `🎉 Got it in ${wrong + 1}!` : '🎉 First time – spot on!'); return; }
+      wrong++;
+      img.style.setProperty('--b', `${BLUR[Math.min(wrong, BLUR.length - 1)]}px`);
+      if (CLUES[wrong]) $('clues').insertAdjacentHTML('beforeend', `<li class="new">${CLUES[wrong]}</li>`);
+      $('guessResult').textContent = `Not quite – have another go! (${wrong} wrong guess${wrong === 1 ? '' : 'es'})`;
+      if (wrong >= 3) $('giveUp').hidden = false;
+      e.target.guess.select();
+    });
+    $('giveUp').addEventListener('click', async () => {
+      const r = await fetch('/api/guess', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ giveUp: true }) }).then(x => x.json());
+      if (r.answer) reveal(r.answer, 'It was');
     });
   } catch (e) { $('guessBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
 }
