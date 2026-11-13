@@ -7,8 +7,8 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/styles.css?v=202611122320">
-  <link rel="stylesheet" href="/admin.css?v=202611122320">
+  <link rel="stylesheet" href="/styles.css?v=202611130030">
+  <link rel="stylesheet" href="/admin.css?v=202611130030">
 </head>
 <body>
   <header class="top">
@@ -18,7 +18,8 @@
     </div>
     <div id="adminBar" class="adminbar" data-static></div>
   </header>
-  <script src="/adminbar.js?v=202611122320"></script>
+  <script src="/topbar.js?v=202611130030"></script>
+  <script src="/adminbar.js?v=202611130030"></script>
   <main class="wrap">
     <div class="listhead"><h1>Visitors</h1>
       <div class="years" id="range"><button class="yearbtn" data-d="7">7 days</button><button class="yearbtn on" data-d="30">30 days</button><button class="yearbtn" data-d="90">90 days</button><button class="yearbtn" data-d="365">Year</button></div></div>
@@ -30,6 +31,29 @@ const $ = id => document.getElementById(id);
 function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])); }
 </script>
 <script>
+const TZ_COUNTRY = { 'Europe/London': 'UK', 'Europe/Dublin': 'Ireland', 'Europe/Belfast': 'UK', 'America/New_York': 'USA (East)', 'America/Chicago': 'USA (Central)',
+  'America/Denver': 'USA (Mountain)', 'America/Los_Angeles': 'USA (West)', 'America/Phoenix': 'USA (Arizona)', 'America/Toronto': 'Canada (East)', 'America/Vancouver': 'Canada (West)',
+  'Australia/Sydney': 'Australia (Sydney)', 'Australia/Melbourne': 'Australia (Melbourne)', 'Australia/Brisbane': 'Australia (Brisbane)', 'Australia/Perth': 'Australia (Perth)',
+  'Pacific/Auckland': 'New Zealand', 'Europe/Paris': 'France', 'Europe/Berlin': 'Germany', 'Europe/Madrid': 'Spain', 'Europe/Rome': 'Italy', 'Europe/Amsterdam': 'Netherlands',
+  'Europe/Brussels': 'Belgium', 'Europe/Stockholm': 'Sweden', 'Europe/Oslo': 'Norway', 'Europe/Copenhagen': 'Denmark', 'Europe/Helsinki': 'Finland', 'Europe/Warsaw': 'Poland',
+  'Europe/Lisbon': 'Portugal', 'Europe/Zurich': 'Switzerland', 'Europe/Vienna': 'Austria', 'Europe/Prague': 'Czechia', 'Asia/Tokyo': 'Japan', 'Asia/Kolkata': 'India',
+  'Asia/Singapore': 'Singapore', 'America/Sao_Paulo': 'Brazil', 'America/Mexico_City': 'Mexico', 'Africa/Johannesburg': 'South Africa' };
+function placeName(tz) {
+  if (!tz || tz === 'Unknown') return 'Unknown';
+  if (TZ_COUNTRY[tz]) return TZ_COUNTRY[tz];
+  const parts = tz.split('/'); return parts.slice(1).join(' / ').replace(/_/g, ' ') + ' (' + parts[0] + ')';
+}
+function places(rows) {
+  return rows.length ? '<ol>' + rows.map(r => `<li>${esc(placeName(r.Place))} <span class="muted">${r.Views}</span></li>`).join('') + '</ol>' : '<p class="muted">None yet - this started counting on 13 Nov 2026.</p>';
+}
+function week7(rows) {
+  const by = {}; rows.forEach(r => { by[r.ViewDate.slice(0, 10)] = r.Views; });
+  const days = []; const now = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date()));
+  for (let i = 6; i >= 0; i--) { const d = new Date(now); d.setUTCDate(d.getUTCDate() - i); const k = d.toISOString().slice(0, 10);
+    days.push({ k, n: by[k] || 0, label: d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' }) }); }
+  const max = Math.max(1, ...days.map(d => d.n));
+  return `<div class="w7">${days.map(d => `<div class="w7d"><span class="w7n">${d.n}</span><div class="w7b"><i style="height:${Math.round(d.n / max * 100)}%"></i></div><span class="w7l">${d.label}</span></div>`).join('')}</div>`;
+}
 async function loadVisits(days = 30) {
   $('visitBody').textContent = 'Loading…';
   try {
@@ -42,8 +66,10 @@ async function loadVisits(days = 30) {
     $('visitBody').innerHTML = total
       ? `<div class="tiles"><div><b>${total}</b><span>page views</span></div><div><b>${Math.round(total / Math.max(1, v.byDay.length))}</b><span>a day on average</span></div>
            <div><b>${Math.round(mob / total * 100)}%</b><span>on phones</span></div><div><b>${best ? best.Views : 0}</b><span>busiest day${best ? ' · ' + new Date(best.ViewDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span></div></div>
-         <div class="vbars">${bars}</div>
-         <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div></div>`
+         <h3>Last 7 days</h3>${week7(v.last7 || [])}
+         <h3>Every day in this period</h3><div class="vbars">${bars}</div>
+         <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div>
+           <div><h3>Where visitors are</h3>${places(v.places || [])}<p class="muted small">Worked out from each visitor's clock setting (time zone), so it's the region rather than an exact town.</p></div></div>`
       : '<p>No visits counted in this period yet.</p>';
   } catch { $('visitBody').textContent = 'Couldn\'t load visitor numbers.'; }
 }

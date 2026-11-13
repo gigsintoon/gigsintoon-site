@@ -480,11 +480,16 @@ async function showFavourites(year) {
   history.replaceState(null, '', year ? `/?page=favourites&year=${year}` : '/?page=favourites');
   $('favBody').innerHTML = '<p class="muted">Loading…</p>';
   try {
-    const { years, upcoming } = await api('favourites');
+    const fav = await api('favourites');
+    const upcoming = fav.upcoming;
+    const thisYear = new Date().getFullYear();
+    const years = fav.years.filter(y => y.year <= thisYear);   // future years stay hidden until they arrive
     const pick = years.find(y => String(y.year) === String(year)) || years.find(y => y.year === 2025) || years[0];
     $('favYears').innerHTML = years.map(y =>
       `<button type="button" class="yearbtn${y === pick ? ' on' : ''}" data-favyear="${y.year}">${y.year}${y.kind === 'upcoming' ? ' (upcoming)' : ''}</button>`).join('');
-    let html = `<h2>${esc(pick.title)}</h2>${pick.note ? `<p class="muted">${esc(pick.note)}</p>` : ''}`;
+    const title = pick.kind !== 'upcoming' && !pick.ranked && !/particular order/i.test(pick.title)
+      ? `${pick.title} in no particular order` : pick.title;
+    let html = `<h2>${esc(title)}</h2>${pick.note ? `<p class="muted">${esc(pick.note)}</p>` : ''}`;
     if (pick.kind === 'upcoming') {
       const later = upcoming.filter(r => r.ReleaseYear >= pick.year);
       html += later.length
@@ -503,7 +508,7 @@ async function showFavourites(year) {
   }
 }
 function favList(list, ranked) {
-  return `<ol class="favs${ranked ? ' ranked' : ''}">${list.map(a => `<li class="fav">
+  return `<ol class="favs${ranked ? ' ranked' : ''}">${list.map(a => `<li class="fav${ranked && Number(a.rank) === 1 ? ' top' : ''}">
       ${a.cover ? `<img src="${esc(a.cover)}" alt="" loading="lazy">` : '<div class="nocover"></div>'}
       <div>${ranked && a.rank ? `<span class="rank">${a.rank}</span>` : ''}
         ${a.bandId ? `<button class="artist" data-band="${a.bandId}">${esc(a.artist)}</button>` : `<strong>${esc(a.artist)}</strong>`}
@@ -607,7 +612,8 @@ function route() {
 function countVisit(as) {
   try {
     fetch('/api/hit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-      body: JSON.stringify({ path: as || location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: document.referrer }) });
+      body: JSON.stringify({ path: as || location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: document.referrer,
+        tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') }) });
   } catch { /* ignore */ }
 }
 
