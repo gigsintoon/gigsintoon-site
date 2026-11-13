@@ -322,11 +322,6 @@ async function ensureHits() {
       ViewDate DATE NOT NULL, Path NVARCHAR(200) NOT NULL, RefHost NVARCHAR(200) NOT NULL, Device NVARCHAR(10) NOT NULL,
       Views INT NOT NULL DEFAULT 0,
       CONSTRAINT PK_PageViews PRIMARY KEY (ViewDate, Path, RefHost, Device))`);
-  // Rough location from the visitor's own clock setting (time zone such as Europe/London) - no IP lookups, no cookies
-  await query(`IF OBJECT_ID('music.PageViewPlaces') IS NULL
-    CREATE TABLE music.PageViewPlaces (
-      ViewDate DATE NOT NULL, Place NVARCHAR(60) NOT NULL, Views INT NOT NULL DEFAULT 0,
-      CONSTRAINT PK_PageViewPlaces PRIMARY KEY (ViewDate, Place))`);
   hitsReady = true;
 }
 app.http('hit', {
@@ -351,12 +346,14 @@ app.http('hit', {
         WHEN MATCHED THEN UPDATE SET Views = t.Views + 1
         WHEN NOT MATCHED THEN INSERT (ViewDate, Path, RefHost, Device, Views) VALUES (s.ViewDate, s.Path, s.RefHost, s.Device, 1);`,
         { p: [sql.NVarChar(200), path], r: [sql.NVarChar(200), ref.slice(0, 200)], d: [sql.NVarChar(10), device] });
+      // Rough location from the visitor's own clock setting (time zone such as Europe/London) - no IP lookups, no cookies.
+      // music.PageViewPlaces is made by db/005; until then this quietly does nothing.
       const tz = /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(String(b.tz || '')) ? String(b.tz).slice(0, 60) : 'Unknown';
       await query(`MERGE music.PageViewPlaces AS t
         USING (SELECT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE) AS ViewDate, @z AS Place) s
         ON t.ViewDate = s.ViewDate AND t.Place = s.Place
         WHEN MATCHED THEN UPDATE SET Views = t.Views + 1
-        WHEN NOT MATCHED THEN INSERT (ViewDate, Place, Views) VALUES (s.ViewDate, s.Place, 1);`, { z: [sql.NVarChar(60), tz] });
+        WHEN NOT MATCHED THEN INSERT (ViewDate, Place, Views) VALUES (s.ViewDate, s.Place, 1);`, { z: [sql.NVarChar(60), tz] }).catch(() => {});
       return { status: 204 };
     } catch (err) {
       context.error(err);
@@ -384,7 +381,7 @@ app.http('visits', {
       const refs = await query(`SELECT TOP 20 RefHost, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since} AND RefHost <> ''
         GROUP BY RefHost ORDER BY Views DESC`, p);
       const places = await query(`SELECT TOP 20 Place, SUM(Views) AS Views FROM music.PageViewPlaces WHERE ViewDate >= ${since}
-        GROUP BY Place ORDER BY Views DESC`, p);
+        GROUP BY Place ORDER BY Views DESC`, p).catch(() => []);
       const last7 = await query(`SELECT ViewDate, SUM(Views) AS Views FROM music.PageViews
         WHERE ViewDate >= DATEADD(day, -6, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY ViewDate`);
       return json({ days, byDay, pages, refs, places, last7 });

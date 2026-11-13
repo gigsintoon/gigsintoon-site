@@ -25,6 +25,9 @@ app.http('gig', {
           WHERE gb.GigId = @id ORDER BY gb.BillOrder`, { id: [sql.Int, id] });
       g.Images = await query(
         `SELECT PublicUrl AS Url, Kind, AltText FROM music.Images WHERE GigId = @id ORDER BY SortOrder, ImageId`, { id: [sql.Int, id] });
+      // YouTube videos from the gig (column added by db/005; empty until then)
+      const v = await query(`SELECT VideoJson FROM music.Gigs WHERE GigId = @id`, { id: [sql.Int, id] }).catch(() => []);
+      try { g.Videos = JSON.parse((v[0] && v[0].VideoJson) || '[]'); } catch { g.Videos = []; }
       if (!all) delete g.Status;
       return json({ gig: g, admin: all });
     } catch (err) {
@@ -101,7 +104,13 @@ app.http('adminGig', {
           g: [sql.Int, gigId], sl: [sql.NVarChar(sql.MAX), b.setlist ? JSON.stringify(b.setlist) : null],
           su: [sql.NVarChar(400), b.setlistUrl || null], pu: [sql.NVarChar(400), b.playlistUrl || null] });
       }
-      return json({ ok: true, gigId });
+      let videosSaved = null;
+      if (Array.isArray(b.videos)) {
+        const vids = b.videos.map(x => ({ id: String(x.id || '').replace(/[^\w-]/g, '').slice(0, 20), title: String(x.title || '').slice(0, 200) })).filter(x => x.id);
+        videosSaved = await query(`UPDATE music.Gigs SET VideoJson = @v WHERE GigId = @g`, { g: [sql.Int, gigId], v: [sql.NVarChar(sql.MAX), JSON.stringify(vids)] })
+          .then(() => vids.length).catch(() => 'needs db/005');
+      }
+      return json({ ok: true, gigId, videosSaved });
     } catch (err) {
       context.error(err);
       return json({ ok: false, error: err.message }, 500);

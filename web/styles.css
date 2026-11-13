@@ -148,3 +148,4 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .lightbox img{max-width:94vw;max-height:88vh;border-radius:8px}
 .lightbox button{position:absolute;background:rgba(255,255,255,.12);color:#fff;border:0;border-radius:50%;width:48px;height:48px;font-size:28px;cursor:pointer}
 .lbp{left:14px;top:50%}.lbn2{right:14px;top:50%}.lbclose{top:14px;right:14px;font-size:20px!important}.lbc{position:absolute;bottom:16px;color:#ccc;font-size:14px}
+.gigvids{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;margin:10px 0 20px}.gigvids figure{margin:0}.yt{position:relative;padding-top:56.25%;border-radius:8px;overflow:hidden;background:#000}.yt iframe{position:absolute;inset:0;width:100%;height:100%;border:0}.gigvids figcaption{font-size:13px;color:var(--muted);margin-top:4px}
