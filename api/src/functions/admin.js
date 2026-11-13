@@ -621,7 +621,7 @@ app.http('adminFixNames', {
   }
 });
 
-// POST /api/manage/release-fix (owner) { fixes: [{ id, type?, date?, region?, chart? }] } — corrects single fields on releases
+// POST /api/manage/release-fix (owner) { fixes: [{ id, type?, date?, region?, chart?, title?, writeUp? }] } — corrects single fields on releases
 // (region: 'UK' | 'US' | 'Japan' | 'Australia' | null; chart: number or null to clear)
 app.http('adminReleaseFix', {
   methods: ['POST'],
@@ -638,6 +638,8 @@ app.http('adminReleaseFix', {
         if (f.date) { sets.push('ReleaseDate = @date'); p.date = [sql.Date, f.date]; }
         if ('region' in f) { sets.push('ReleaseRegion = @region'); p.region = [sql.NVarChar(10), f.region || null]; }
         if ('chart' in f) { sets.push('ChartPosition = @chart'); p.chart = [sql.Int, f.chart || null]; }
+        if (f.title) { sets.push('Title = @title'); p.title = [sql.NVarChar(400), String(f.title).trim()]; }
+        if (f.writeUp) { sets.push('WriteUp = @wu'); p.wu = [sql.NVarChar(sql.MAX), String(f.writeUp)]; }
         if (!sets.length) continue;
         const r = await query(`UPDATE music.Releases SET ${sets.join(', ')}, UpdatedAt = SYSUTCDATETIME() WHERE ReleaseId = @id; SELECT @@ROWCOUNT AS n`, p);
         done.push({ id: f.id, ok: !!(r[0] && r[0].n) });
