@@ -100,12 +100,33 @@ function releaseCard(r, { showDate = false, viewYear = null, isToday = false } =
 const isMoment = r => r.ReleaseType === 'Other' && /\b(gig|got together|formed|first show|birthday|anniversary)\b/i.test(r.Title || '');
 function listenLinks(r) {
   if (isMoment(r)) return '';
-  const q = encodeURIComponent(`${r.Artist} ${r.Title}`.replace(/\s+(EP|Single|CD[12])$/i, ''));
-  return `<div class="listen"><span>Listen:</span>
-    <a href="https://music.apple.com/gb/search?term=${q}" target="_blank" rel="noopener">Apple Music</a>
-    <a href="https://open.spotify.com/search/${q}" target="_blank" rel="noopener">Spotify</a>
-    <a href="https://www.deezer.com/search/${q}" target="_blank" rel="noopener">Deezer</a></div>`;
+  // Filled in by fillListenLinks() with direct Apple Music / Deezer pages; hidden if we don't have a confirmed link
+  return `<div class="listen" data-rid="${r.ReleaseId}" hidden></div>`;
 }
+
+// Direct "Listen" links: fetched in batches for whatever release cards are on screen
+const linkCache = {};
+let linkTimer = null;
+async function fillListenLinks() {
+  const els = [...document.querySelectorAll('.listen[data-rid]:not([data-done])')];
+  if (!els.length) return;
+  els.forEach(e => e.dataset.done = '1');
+  const need = [...new Set(els.map(e => e.dataset.rid).filter(id => !(id in linkCache)))];
+  for (let i = 0; i < need.length; i += 200) {
+    try {
+      const { links } = await api('links?ids=' + need.slice(i, i + 200).join(','));
+      need.slice(i, i + 200).forEach(id => { linkCache[id] = links[id] || null; });
+    } catch { need.slice(i, i + 200).forEach(id => { linkCache[id] = null; }); }
+  }
+  for (const e of els) {
+    const l = linkCache[e.dataset.rid];
+    const a = l && [l.apple && `<a href="${esc(l.apple)}" target="_blank" rel="noopener">Apple Music</a>`,
+      l.deezer && `<a href="${esc(l.deezer)}" target="_blank" rel="noopener">Deezer</a>`].filter(Boolean);
+    if (a && a.length) { e.innerHTML = `<span>Listen:</span> ${a.join(' ')}`; e.hidden = false; }
+  }
+}
+new MutationObserver(() => { clearTimeout(linkTimer); linkTimer = setTimeout(fillListenLinks, 60); })
+  .observe(document.body, { childList: true, subtree: true });
 
 function gigWhen(g) { const d = new Date(g.GigDate); return `${ordinal(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`; }
 function gigCardDated(g) { return gigCard({ ...g, WriteUp: null }).replace(/Gig memory · \d{4}/, `Gig memory · ${gigWhen(g)}`); }

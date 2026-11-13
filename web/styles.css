@@ -151,3 +151,4 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .gigvids{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;margin:10px 0 20px}.gigvids figure{margin:0}.yt{position:relative;padding-top:56.25%;border-radius:8px;overflow:hidden;background:#000}.yt iframe{position:absolute;inset:0;width:100%;height:100%;border:0}.gigvids figcaption{font-size:13px;color:var(--muted);margin-top:4px}
 
 .surprise{max-width:560px;margin:14px 0}.surprise .card{animation:flash 2.2s ease}.surpriseacts{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
+.listen[hidden]{display:none}
