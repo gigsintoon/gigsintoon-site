@@ -145,3 +145,28 @@ app.http('adminGigImage', {
     } catch (err) { context.error(err); return json({ ok: false, error: err.message }, 500); }
   }
 });
+
+// POST /api/manage/gig-delete (owner) { id, confirm: true } removes a gig (its bands and images links go with it).
+// Without confirm it just shows what would be deleted.
+app.http('adminGigDelete', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/gig-delete',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const b = await request.json();
+      const id = parseInt(b.id, 10);
+      if (!id) return json({ ok: false, error: 'Give id' }, 400);
+      const rows = await query(`SELECT g.GigId, g.GigDate, (SELECT STRING_AGG(x.Name, ', ') FROM music.GigBands gb JOIN music.Bands x ON x.BandId = gb.BandId WHERE gb.GigId = g.GigId) AS Bands
+                                  FROM music.Gigs g WHERE g.GigId = @id`, { id: [sql.Int, id] });
+      if (!rows.length) return json({ ok: false, error: 'No gig with that id' }, 404);
+      if (b.confirm !== true) return json({ ok: true, preview: rows[0] });
+      await query(`DELETE music.Gigs WHERE GigId = @id`, { id: [sql.Int, id] });
+      return json({ ok: true, deleted: rows[0] });
+    } catch (err) {
+      context.error(err);
+      return json({ ok: false, error: String(err.message || err) }, 500);
+    }
+  }
+});
