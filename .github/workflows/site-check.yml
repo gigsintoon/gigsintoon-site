@@ -1,0 +1,9 @@
+name: Site check
+on: workflow_dispatch
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          for u in /api/launch /api/me "/api/onthisday?month=11&day=13" /api/random "/api/links?ids=5942" /api/favourites; do
+            echo "== $u"; curl -sS -m 60 -o body.txt -w "%{http_code} %{time_total}s\n" "https://www.gigsintoon.co.uk$u"; head -c 300 body.txt; echo; done
