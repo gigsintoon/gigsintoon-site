@@ -22,7 +22,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
   <meta name="theme-color" content="#111214">
-  <link rel="stylesheet" href="/styles.css?v=202611130300">
+  <link rel="stylesheet" href="/styles.css?v=202611131005">
 </head>
 <body>
   <header class="top">
@@ -88,6 +88,12 @@
       <div id="yearBody" class="grid"></div>
     </section>
 
+    <section id="surpriseView" hidden>
+      <h1>🎲 Your surprise</h1>
+      <div id="surpriseBody"><p class="muted">Picking something…</p></div>
+      <p class="surpriseacts"><button id="surpriseAgain" type="button">🎲 Surprise me again</button> <button id="surpriseDay" type="button" class="ghost"></button></p>
+    </section>
+
     <section id="weekView" hidden>
       <h1>This week</h1>
       <p class="muted">The next seven days on Gigs in toon – tap a day to see everything.</p>
@@ -124,6 +130,6 @@
   </div></footer>
   <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
   <script src="/adminbar.js?v=202611130300"></script>
-  <script src="/app.js?v=202611130300"></script>
+  <script src="/app.js?v=202611131005"></script>
 </body>
 </html>

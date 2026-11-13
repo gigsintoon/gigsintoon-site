@@ -235,7 +235,7 @@ function gigTeaserCard(t) {
 }
 
 function showOnly(id) {
-  for (const v of ['dayView', 'bandView', 'favView', 'gigView', 'yearView', 'statsView', 'guessView', 'venueView', 'weekView']) $(v).hidden = v !== id;
+  for (const v of ['dayView', 'bandView', 'favView', 'gigView', 'yearView', 'statsView', 'guessView', 'venueView', 'weekView', 'surpriseView']) $(v).hidden = v !== id;
   document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
 }
 
@@ -573,15 +573,28 @@ $('navFav').onclick = e => { e.preventDefault(); showFavourites(); };
 $('navStats').onclick = e => { e.preventDefault(); showStats(); };
 $('navWeek').onclick = e => { e.preventDefault(); showWeek(); };
 $('navGuess').onclick = e => { e.preventDefault(); showGuess(); };
-$('surpriseBtn').onclick = async () => {
+// Surprise me: a page showing just the one random release, so it's clear what the surprise is
+async function showSurprise() {
+  showOnly('surpriseView');
+  $('surpriseBody').innerHTML = '<p class="muted">Picking something…</p>';
+  $('surpriseDay').hidden = true;
   try {
     const r = await api('random');
-    if (!r.Month) return;
-    await showDay(new Date(Date.UTC(ukToday().getUTCFullYear(), r.Month - 1, r.Day)));
-    const card = document.querySelector(`[data-rid="${r.ReleaseId}"]`);
-    if (card) { card.classList.add('flash'); card.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
-  } catch { /* ignore */ }
-};
+    if (!r.Month) { $('surpriseBody').innerHTML = '<p class="empty">Nothing to pick from yet.</p>'; return; }
+    history.replaceState(null, '', '/?page=surprise');
+    const data = await api(`onthisday?month=${r.Month}&day=${r.Day}`);
+    handles = data.handles || {};
+    const rel = data.releases.find(x => x.ReleaseId === r.ReleaseId);
+    if (!rel) { $('surpriseBody').innerHTML = '<p class="empty">Could not load that one – try again.</p>'; return; }
+    $('surpriseBody').innerHTML = `<div class="surprise">${releaseCard(rel, { showDate: true })}</div>`;
+    const date = new Date(Date.UTC(ukToday().getUTCFullYear(), r.Month - 1, r.Day));
+    $('surpriseDay').textContent = `See everything from ${ordinal(r.Day)} ${MONTHS[r.Month - 1]}`;
+    $('surpriseDay').hidden = false;
+    $('surpriseDay').onclick = () => showDay(date);
+  } catch (e) { $('surpriseBody').innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
+}
+$('surpriseBtn').onclick = () => showSurprise();
+$('surpriseAgain').onclick = () => showSurprise();
 
 // Admin bits in the header: link to the list page, and "view as visitor"
 function renderAdminBar() {
@@ -603,6 +616,7 @@ function route() {
   else if (p.get('page') === 'week') showWeek();
   else if (p.get('venue')) showVenue(p.get('venue'));
   else if (p.get('page') === 'guess') showGuess();
+  else if (p.get('page') === 'surprise') showSurprise();
   else if (/^\d{2}-\d{2}$/.test(p.get('date') || '')) {
     const [mm, dd] = p.get('date').split('-').map(Number);
     showDay(new Date(Date.UTC(ukToday().getUTCFullYear(), mm - 1, dd)));
