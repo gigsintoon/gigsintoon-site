@@ -694,6 +694,7 @@ function showCountdown(launchAt, serverNow) {
   try { launch = await (await fetch('/api/launch', { cache: 'no-store' })).json(); } catch { /* assume live */ }
   isAdmin = !!launch.owner;
   if (launch.owner === undefined) { try { isAdmin = !!(await (await fetch('/api/me')).json()).owner; } catch { isAdmin = false; } }
+  if (isAdmin) { window.__ownerView = true; document.documentElement.classList.remove('noshare'); }
   if (!launch.live && (!isAdmin || asVisitor)) { countVisit('/countdown'); showCountdown(launch.launchAt, launch.now); return; }
   countVisit();
   renderAdminBar();

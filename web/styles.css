@@ -152,3 +152,6 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 
 .surprise{max-width:560px;margin:14px 0}.surprise .card{animation:flash 2.2s ease}.surpriseacts{display:flex;flex-wrap:wrap;gap:10px;margin-top:8px}
 .listen[hidden]{display:none}
+.noshare body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+.noshare input,.noshare textarea,.noshare select{-webkit-user-select:text;user-select:text}
+.noshare img{-webkit-user-drag:none;user-drag:none;-webkit-touch-callout:none}
