@@ -5,5 +5,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - run: |
-          for u in /api/launch /api/me "/api/onthisday?month=11&day=13" /api/random "/api/links?ids=5942" /api/favourites; do
+          for u in /api/launch /api/me "/api/links?ids=5942"; do
             echo "== $u"; curl -sS -m 60 -o body.txt -w "%{http_code} %{time_total}s\n" "https://www.gigsintoon.co.uk$u"; head -c 300 body.txt; echo; done
+          echo "== POST /api/hit"; curl -sS -m 60 -o body.txt -w "%{http_code} %{time_total}s\n" -H 'Content-Type: application/json' -d '{"path":"/site-check","ref":"","tz":"Europe/London"}' https://www.gigsintoon.co.uk/api/hit; head -c 300 body.txt; echo
+          echo "== POST /api/contact (empty)"; curl -sS -m 60 -o body.txt -w "%{http_code} %{time_total}s\n" -H 'Content-Type: application/json' -d '{}' https://www.gigsintoon.co.uk/api/contact; head -c 300 body.txt; echo
