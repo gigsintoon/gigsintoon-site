@@ -1,5 +1,5 @@
 const { app } = require('@azure/functions');
-const { BlobServiceClient } = require('@azure/storage-blob');
+const { BlobServiceClient, BlobSASPermissions } = require('@azure/storage-blob');
 const { sql, query, json } = require('../db');
 
 const { isOwner } = require('../auth');
@@ -646,5 +646,30 @@ app.http('adminReleaseFix', {
       }
       return json({ ok: true, done });
     } catch (err) { return failDetail(context, err); }
+  }
+});
+
+// POST /api/manage/upload-link?path=gig photos/Mon D YYYY Band.jpg  (owner)
+// Returns a short-lived (15 min), write-only link for that one image, so photos can be
+// uploaded straight to storage (PUT with header x-ms-blob-type: BlockBlob) without going via GitHub.
+app.http('adminUploadLink', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/upload-link',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    const path = cleanPath(request.query.get('path'));
+    const ext = (path || '').split('.').pop().toLowerCase();
+    if (!path || !CONTENT_TYPES[ext]) return json({ ok: false, error: 'Give ?path= ending in .jpg, .jpeg, .png, .webp, .gif or .jfif' }, 400);
+    try {
+      const blob = mediaContainer().getBlockBlobClient(path);
+      const uploadUrl = await blob.generateSasUrl({ permissions: BlobSASPermissions.parse('cw'),
+        startsOn: new Date(Date.now() - 60 * 1000), expiresOn: new Date(Date.now() + 15 * 60 * 1000),
+        contentType: CONTENT_TYPES[ext] });
+      return json({ ok: true, path, uploadUrl, contentType: CONTENT_TYPES[ext],
+        url: mediaBaseUrl() + path.split('/').map(encodeURIComponent).join('/'), expiresInMinutes: 15 });
+    } catch (err) {
+      return failDetail(context, err);
+    }
   }
 });
