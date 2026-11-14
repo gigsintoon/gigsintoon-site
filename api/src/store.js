@@ -84,25 +84,28 @@ function cacheContainer() {
 }
 const mem = new Map();                      // per-instance copy, so most requests don't even touch blob storage
 let ver = { v: null, at: 0 };
-// The data version changes whenever Micky saves something in the admin pages; every cached answer carries it.
-async function dataVersion() {
+// Versions: g = everything, l = list pages (week, stats, favourites, years, search, bands, gigs), d = individual days ("MM-DD").
+// Saving a release only refreshes its own day and the list pages; anything we can't place refreshes everything.
+async function versions() {
   if (ver.v && Date.now() - ver.at < 30000) return ver.v;
+  let v = { g: '1', l: '1', d: {} };
   try {
-    const b = (await cacheContainer()).getBlockBlobClient('version.txt');
-    const v = (await b.downloadToBuffer()).toString().trim();
-    ver = { v, at: Date.now() };
-  } catch (err) {
-    if (err.statusCode !== 404) throw err;
-    ver = { v: '1', at: Date.now() };
-  }
-  return ver.v;
-}
-async function bumpVersion() {
-  const v = String(Date.now());
-  await (await cacheContainer()).getBlockBlobClient('version.txt').upload(v, v.length, { blobHTTPHeaders: { blobContentType: 'text/plain' } });
+    const raw = (await (await cacheContainer()).getBlockBlobClient('version.txt').downloadToBuffer()).toString().trim();
+    v = raw.startsWith('{') ? JSON.parse(raw) : { g: raw, l: raw, d: {} };
+  } catch (err) { if (err.statusCode !== 404) throw err; }
   ver = { v, at: Date.now() };
-  mem.clear();
   return v;
+}
+async function dataVersion() { return (await versions()).g; }
+async function bumpVersion({ days = null } = {}) {
+  const now = String(Date.now());
+  const v = JSON.parse(JSON.stringify(await versions().catch(() => ({ g: '1', l: '1', d: {} }))));
+  if (days && days.length) { v.l = now; for (const d of days) v.d[d] = now; }
+  else { v.g = now; v.l = now; v.d = {}; }
+  const s = JSON.stringify(v);
+  await (await cacheContainer()).getBlockBlobClient('version.txt').upload(s, s.length, { blobHTTPHeaders: { blobContentType: 'application/json' } });
+  ver = { v, at: Date.now() };
+  return now;
 }
 const blobName = k => 'api/' + k.replace(/[^A-Za-z0-9._=&-]/g, '_') + '.json';
 async function getCached(k, stamp) {
@@ -123,4 +126,4 @@ async function setCached(k, stamp, body) {
   await (await cacheContainer()).getBlockBlobClient(blobName(k)).upload(s, Buffer.byteLength(s), { blobHTTPHeaders: { blobContentType: 'application/json' } });
 }
 
-module.exports = { incr, get, put, insertIfNew, del, rows, key, unkey, dataVersion, bumpVersion, getCached, setCached };
+module.exports = { versions, incr, get, put, insertIfNew, del, rows, key, unkey, dataVersion, bumpVersion, getCached, setCached };

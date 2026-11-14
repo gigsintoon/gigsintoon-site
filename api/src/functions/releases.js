@@ -161,8 +161,14 @@ app.http('searchBands', {
   handler: async (request, context) => {
     if (prelaunch(request)) return prelaunchResponse();
     const q = (request.query.get('q') || '').trim();
-    if (q.length < 2) return json({ bands: [] });
     const all = seesAll(request);
+    if (request.query.get('all') === '1') {   // every band a visitor can see, for searching in the browser
+      try {
+        return json({ bands: await query(`SELECT b.BandId, b.Name, COUNT(*) AS ReleaseCount FROM music.Bands b
+          JOIN music.Releases r ON r.BandId = b.BandId WHERE ${VISIBLE} GROUP BY b.BandId, b.Name ORDER BY b.Name`) });
+      } catch (err) { return fail(context, err); }
+    }
+    if (q.length < 2) return json({ bands: [] });
     try {
       const bands = await query(
         `SELECT TOP 50 * FROM (
@@ -984,7 +990,7 @@ app.http('rebuild', {
   route: 'manage/rebuild',
   handler: async (request) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
-    const v = await store.bumpVersion();     // the wrapper bumps it too; harmless
-    return json({ ok: true, version: v });
+    // The save wrapper does the work: {month, day} refreshes that day + the list pages, anything else refreshes everything
+    return json({ ok: true });
   }
 });

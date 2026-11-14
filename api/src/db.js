@@ -51,17 +51,21 @@ const STAMPS = {
   favourites: () => ukDay().slice(0, 4),
   'years/{year:int?}': r => (r.params.year && Number(r.params.year) < Number(ukDay().slice(0, 4))) ? 'old' : ukDay(),
 };
-const DAILY = ['week', 'stats', 'sitemap', 'search', 'links', 'venue', 'bands/{id:int}', 'gigs/{id:int}', 'roundup/{date}'];
+const DAILY = ['week', 'stats', 'sitemap', 'search', 'links', 'roundup/{date}'];
+const ON_CHANGE = ['venue', 'bands/{id:int}', 'gigs/{id:int}'];   // only rebuilt when something is saved
 const cacheKey = (route, r) => route.replace(/[{}:?]/g, '') + '?' + [...Object.entries(r.params || {}), ...[...r.query.entries()].sort()]
   .map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join('&');
 
 async function cachedCall(name, route, handler, request, context) {
-  const stampFn = STAMPS[route] || (DAILY.includes(route) ? () => ukDay() : null);
+  const stampFn = STAMPS[route] || (DAILY.includes(route) ? () => ukDay() : ON_CHANGE.includes(route) ? () => 'c' : null);
   if (!stampFn || request.method !== 'GET' || isOwner(request)) return handler(request, context);
   let k, stamp;
   try {
     k = cacheKey(route, request);
-    stamp = (await store.dataVersion()) + '|' + stampFn(request);
+    const v = await store.versions();
+    // a day's page only depends on its own day; everything else on the list version
+    const part = route === 'onthisday' ? (v.d[`${pad(request.query.get('month'))}-${pad(request.query.get('day'))}`] || '0') : v.l;
+    stamp = v.g + '|' + part + '|' + stampFn(request);
     const hit = await store.getCached(k, stamp);
     if (hit !== undefined) return { status: 200, jsonBody: hit, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'hit' } };
   } catch (err) { context.warn('cache read failed: ' + err.message); }
@@ -73,6 +77,36 @@ async function cachedCall(name, route, handler, request, context) {
   return res;
 }
 
+// Admin saves that don't change anything visitors see
+const NO_BUMP = ['manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key'];
+// Which days ("MM-DD") a save is about, from dates in its body; null = can't tell, refresh everything
+async function daysIn(request) {
+  try {
+    const t = await request.clone().text();
+    if (!t) return null;
+    const body = JSON.parse(t), out = new Set();
+    let unknownItem = false;
+    for (const item of [].concat(body)) {
+      if (!item || typeof item !== 'object') { unknownItem = true; continue; }
+      const d = String(item.date || item.ReleaseDate || '');
+      const m = /^\d{4}-(\d{2})-(\d{2})/.exec(d);
+      if (m) out.add(m[1] + '-' + m[2]);
+      else if (item.month && item.day) out.add(pad(item.month) + '-' + pad(item.day));
+      else unknownItem = true;
+    }
+    return out.size && !unknownItem ? [...out] : null;
+  } catch { return null; }
+}
+// After a save the database is awake anyway: refresh the busiest ready-made pages straight away
+async function rewarm(days) {
+  const t = ukDay(), [y, mm, dd] = t.split('-');
+  const urls = ['/api/week', '/api/favourites', '/api/stats', '/api/years', `/api/years/${y}`, '/api/search?all=1', `/api/onthisday?month=${+mm}&day=${+dd}`]
+    .concat((days || []).slice(0, 6).map(d => `/api/onthisday?month=${+d.slice(0, 2)}&day=${+d.slice(3)}`));
+  const c = new AbortController(); const timer = setTimeout(() => c.abort(), 8000);
+  await Promise.allSettled([...new Set(urls)].map(u => fetch('https://www.gigsintoon.co.uk' + u, { signal: c.signal })));
+  clearTimeout(timer);
+}
+
 // Wrap every function as it's registered: public GETs go through the cache; any successful admin save bumps the data version.
 if (!app.__gigsWrapped) {
   const orig = app.http.bind(app);
@@ -80,8 +114,12 @@ if (!app.__gigsWrapped) {
     const route = opts.route || name, handler = opts.handler;
     return orig(name, { ...opts, handler: async (request, context) => {
       if (route.startsWith('manage/') && request.method !== 'GET') {
+        const days = await daysIn(request);
         const res = await handler(request, context);
-        if (res && (res.status || 200) < 400 && isOwner(request)) await store.bumpVersion().catch(err => context.warn('version bump failed: ' + err.message));
+        if (res && (res.status || 200) < 400 && isOwner(request) && !NO_BUMP.includes(route)) {
+          await store.bumpVersion({ days }).catch(err => context.warn('version bump failed: ' + err.message));
+          await rewarm(days);
+        }
         return res;
       }
       return cachedCall(name, route, handler, request, context);

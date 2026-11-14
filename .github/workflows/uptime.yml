@@ -1,0 +1,20 @@
+name: Uptime check
+# Every hour: check the site answers. If anything fails, this run fails and GitHub emails you.
+# Only uses ready-made pages, so it never wakes the database.
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          fail=0
+          M=$(TZ=Europe/London date +%-m); D=$(TZ=Europe/London date +%-d)
+          for u in "/" "/api/launch" "/api/week" "/api/onthisday?month=$M&day=$D"; do
+            code=$(curl -sS -m 60 -o body.txt -w "%{http_code}" "https://www.gigsintoon.co.uk$u" || echo 000)
+            echo "$u -> $code"
+            if [ "$code" != "200" ]; then fail=1; head -c 300 body.txt; echo; fi
+          done
+          if [ $fail = 1 ]; then echo "::error::gigsintoon.co.uk check failed"; exit 1; fi

@@ -609,14 +609,24 @@ function favList(list, ranked) {
 }
 
 // Search
-let searchTimer;
+let searchTimer, allBandsP;
+// Visitors: the whole band list comes once (ready-made, no database) and is searched in the browser.
+// Micky (signed in) still searches live so he sees bands with unposted releases too.
+const fold = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+async function findBands(q) {
+  if (isAdmin && !asVisitor) return (await api('search?q=' + encodeURIComponent(q))).bands;
+  if (!allBandsP) allBandsP = api('search?all=1').then(r => r.bands).catch(e => { allBandsP = null; throw e; });
+  const list = await allBandsP, f = fold(q);
+  return list.filter(b => fold(b.Name).includes(f))
+    .sort((x, y) => (fold(y.Name).startsWith(f) - fold(x.Name).startsWith(f)) || x.Name.localeCompare(y.Name)).slice(0, 50);
+}
 $('searchBox').addEventListener('input', () => {
   clearTimeout(searchTimer);
   const q = $('searchBox').value.trim();
   if (q.length < 2) { $('searchResults').hidden = true; return; }
   searchTimer = setTimeout(async () => {
     try {
-      const { bands } = await api('search?q=' + encodeURIComponent(q));
+      const bands = await findBands(q);
       $('searchResults').innerHTML = bands.length
         ? bands.map(b => `<button type="button" data-band="${b.BandId}"><span>${esc(b.Name)}</span><span class="muted">${b.ReleaseCount}</span></button>`).join('')
         : '<p class="muted" style="padding:9px 12px;margin:0">No bands found</p>';

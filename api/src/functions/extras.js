@@ -8,13 +8,19 @@ const setUnread = async () => { const r = await query(`SELECT COUNT(*) AS n FROM
 
 // A rough per-visitor limit (5 messages an hour) without storing anyone's IP address
 const recent = new Map();
-function tooMany(request) {
+// At most 5 messages an hour from one address (hashed, never stored as an IP). Kept in Table Storage so it
+// survives the server restarting; falls back to this instance's memory if that's unavailable.
+async function tooMany(request) {
   const ip = (request.headers.get('x-forwarded-for') || '').split(',')[0].trim();
-  const key = crypto.createHash('sha256').update(ip + new Date().toISOString().slice(0, 13)).digest('hex');
-  const n = (recent.get(key) || 0) + 1;
-  recent.set(key, n);
-  if (recent.size > 5000) recent.clear();
-  return n > 5;
+  const hour = new Date().toISOString().slice(0, 13);
+  const key = crypto.createHash('sha256').update(ip + hour).digest('hex').slice(0, 32);
+  try { const e = await store.incr('ratelimit', hour, key, { N: 1 }); return Number(e.N) > 5; }
+  catch {
+    const n = (recent.get(key) || 0) + 1;
+    recent.set(key, n);
+    if (recent.size > 5000) recent.clear();
+    return n > 5;
+  }
 }
 
 // POST /api/contact {name, email, topic, message, website(honeypot)}
@@ -33,7 +39,7 @@ app.http('contact', {
       if (message.length < 5) return json({ ok: false, error: 'Please write a message.' }, 400);
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ ok: false, error: 'That email address doesn’t look right.' }, 400);
       if ((message.match(/https?:\/\//g) || []).length > 3) return json({ ok: false, error: 'Please include fewer links.' }, 400);
-      if (tooMany(request)) return json({ ok: false, error: 'Thanks – please try again a bit later.' }, 429);
+      if (await tooMany(request)) return json({ ok: false, error: 'Thanks – please try again a bit later.' }, 429);
       const at = new Date();
       const id = at.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14) + '-' + crypto.randomBytes(3).toString('hex');
       await query(`INSERT music.Messages (MessageId, ReceivedAt, Name, Email, Topic, Body) VALUES (@id, @at, @n, @e, @t, @b)`, {
