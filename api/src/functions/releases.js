@@ -506,12 +506,10 @@ const ukHour = (d = new Date()) => Number(new Intl.DateTimeFormat('en-GB', { tim
 const dayBefore = day => { const t = new Date(day + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
 // Each day's pick is saved in music.GuessPicks so it stays fixed for the day and is never used again.
 let picksReady = false;
-async function ensurePicks() {
-  if (picksReady) return;
-  await query(`IF OBJECT_ID('music.GuessPicks') IS NULL
-    CREATE TABLE music.GuessPicks (Period NVARCHAR(10) NOT NULL CONSTRAINT PK_GuessPicks PRIMARY KEY, ReleaseId INT NOT NULL,
-      PickedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME())`);
-  picksReady = true;
+async function ensurePicks() {           // table comes from db/006-guess-daily.sql
+  if (picksReady) return true;
+  picksReady = !!(await query(`SELECT OBJECT_ID('music.GuessPicks') AS id`))[0].id;
+  return picksReady;
 }
 const PUZZLE_COLS = `r.ReleaseId, r.ReleaseYear, r.ReleaseType, r.Title, COALESCE(r.ArtistDisplay, b.Name) AS Artist, b.BandId,
             r.ReleaseMonth, r.ReleaseDay,
@@ -528,7 +526,17 @@ async function puzzleFor(period, { create = true } = {}) {
       { w: [sql.NVarChar(10), period] });
     return rows[0] || null;
   }
-  await ensurePicks();
+  if (!(await ensurePicks())) {           // not set up yet: same-for-everyone pick of the day, without the no-repeat memory
+    const rows = await query(
+      `SELECT ${PUZZLE_COLS}
+         FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+        WHERE ${VISIBLE} AND r.ReleaseType IN ('Album','EP','Single')
+          AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
+        ORDER BY CHECKSUM(r.ReleaseId * 7919, @w) , r.ReleaseId
+        OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY`,
+      { w: [sql.NVarChar(10), period] });
+    return rows[0] || null;
+  }
   const P = { p: [sql.NVarChar(10), period] };
   const saved = () => query(`SELECT ${PUZZLE_COLS} FROM music.GuessPicks g JOIN music.Releases r ON r.ReleaseId = g.ReleaseId
       JOIN music.Bands b ON b.BandId = r.BandId WHERE g.Period = @p`, P);
