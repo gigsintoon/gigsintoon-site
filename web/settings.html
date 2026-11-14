@@ -74,6 +74,7 @@ async function loadInfo(fresh) {
       ${i.db.note ? `<p class="muted">${esc(i.db.note)}</p>` : ''}
       <div class="vcols"><div><h3>Images by folder</h3><ol>${folders}</ol></div><div><h3>Database tables</h3><ol>${tables}</ol></div></div>
       <p class="muted" style="font-size:13px">${b ? `Website last published ${new Date(b.builtAt).toLocaleString('en-GB')} (version ${esc(b.commit)}). ` : ''}Figures from ${new Date(i.at).toLocaleTimeString('en-GB')}.</p>`;
+    if (i.countedAt) $('info').insertAdjacentHTML('beforeend', `<p class="muted" style="font-size:13px">Database and storage counts from ${new Date(i.countedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })} – press Refresh for a fresh count. Page views are live.</p>`);
   } catch (e) { $('info').textContent = 'Couldn\'t load: ' + e.message; }
 }
 $('refresh').onclick = () => loadInfo(true);

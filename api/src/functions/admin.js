@@ -1,6 +1,7 @@
 const { app } = require('@azure/functions');
 const { BlobServiceClient, BlobSASPermissions } = require('@azure/storage-blob');
-const { sql, query, json } = require('../db');
+const { sql, query, json, ukDay } = require('../db');
+const store = require('../store');
 
 const { isOwner } = require('../auth');
 
@@ -535,7 +536,14 @@ app.http('adminCharts', {
 });
 
 // GET /api/manage/site-info -> sizes and counts for the Settings page (cached 10 minutes)
-let siteInfoCache = null, siteInfoAt = 0;
+// Page view totals from Table Storage (live, no database needed)
+async function trafficNow() {
+  const days = []; const t = new Date(ukDay() + 'T12:00:00Z');
+  for (const d = new Date('2026-11-12T12:00:00Z'); d <= t; d.setUTCDate(d.getUTCDate() + 1)) days.push(d.toISOString().slice(0, 10));
+  const per = await Promise.all(days.map(async d => (await store.rows('pageviews', d)).reduce((s, r) => s + Number(r.Views || 0), 0)));
+  const sumLast = n => per.slice(-n).reduce((a, b) => a + b, 0);
+  return { Today: per[per.length - 1] || 0, Week: sumLast(7), Month: sumLast(30), AllTime: sumLast(per.length) };
+}
 app.http('adminSiteInfo', {
   methods: ['GET'],
   authLevel: 'anonymous',
@@ -543,7 +551,11 @@ app.http('adminSiteInfo', {
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
     try {
-      if (siteInfoCache && Date.now() - siteInfoAt < 10 * 60 * 1000 && !request.query.get('fresh')) return json(siteInfoCache);
+      // Counted once a day (first time you open Settings that day); Refresh forces a new count
+      if (!request.query.get('fresh')) {
+        const saved = await store.getCached('site-info', ukDay()).catch(() => undefined);
+        if (saved) return json({ ...saved, traffic: await trafficNow().catch(() => null) });
+      }
       const out = {};
       try {
         const t = await query(`SELECT s.name + '.' + t.name AS TableName, SUM(CASE WHEN p.index_id IN (0, 1) THEN p.row_count ELSE 0 END) AS Rows,
@@ -573,16 +585,10 @@ app.http('adminSiteInfo', {
         (SELECT COUNT(*) FROM music.Gigs) AS Gigs, (SELECT COUNT(*) FROM music.Images) AS ImageRows,
         (SELECT COUNT(*) FROM music.Releases WHERE ChartPosition IS NOT NULL) AS Charted`);
       out.counts = c;
-      try {
-        const [v] = await query(`DECLARE @today DATE = CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE);
-          SELECT (SELECT ISNULL(SUM(Views),0) FROM music.PageViews WHERE ViewDate = @today) AS Today,
-                 (SELECT ISNULL(SUM(Views),0) FROM music.PageViews WHERE ViewDate >= DATEADD(day, -6, @today)) AS Week,
-                 (SELECT ISNULL(SUM(Views),0) FROM music.PageViews WHERE ViewDate >= DATEADD(day, -29, @today)) AS Month,
-                 (SELECT ISNULL(SUM(Views),0) FROM music.PageViews) AS AllTime`);
-        out.traffic = v;
-      } catch { out.traffic = null; }
+      out.traffic = await trafficNow().catch(() => null);
       out.at = new Date().toISOString();
-      siteInfoCache = out; siteInfoAt = Date.now();
+      out.countedAt = new Date().toISOString();
+      await store.setCached('site-info', ukDay(), out).catch(() => {});
       return json(out);
     } catch (err) { return failDetail(context, err); }
   }
