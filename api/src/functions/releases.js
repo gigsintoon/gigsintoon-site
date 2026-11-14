@@ -994,3 +994,30 @@ app.http('rebuild', {
     return json({ ok: true });
   }
 });
+
+// POST /api/manage/favourites (owner) {year, title, note, ranked, albums:[{artist, title, note, cover, rank}]} -> replaces that year's list
+app.http('adminFavourites', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/favourites',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const b = await request.json();
+      const year = parseInt(b.year, 10);
+      if (!(year >= 1950 && year <= 2100) || !Array.isArray(b.albums)) return json({ error: 'Need year and albums.' }, 400);
+      const Y = { y: [sql.Int, year] };
+      await query(`DELETE music.FavouriteAlbums WHERE Year = @y; DELETE music.FavouriteYears WHERE Year = @y;
+        INSERT music.FavouriteYears (Year, Title, Note, Kind, Ranked) VALUES (@y, @t, @n, NULL, @r);`,
+        { ...Y, t: [sql.NVarChar(200), String(b.title || `My favourite albums of ${year}`)], n: [sql.NVarChar(sql.MAX), b.note || null], r: [sql.Bit, !!b.ranked] });
+      let i = 0;
+      for (const a of b.albums) {
+        await query(`INSERT music.FavouriteAlbums (Year, SortOrder, Rank, Artist, Title, Note, CoverUrl) VALUES (@y, @o, @k, @a, @ti, @n, @c)`,
+          { ...Y, o: [sql.Int, ++i], k: [sql.Int, a.rank == null ? null : +a.rank], a: [sql.NVarChar(200), String(a.artist)], ti: [sql.NVarChar(300), String(a.title)],
+            n: [sql.NVarChar(sql.MAX), a.note || null], c: [sql.NVarChar(500), a.cover || null] });
+      }
+      favSrc = null;
+      return json({ ok: true, year, albums: i });
+    } catch (err) { return fail(context, err); }
+  }
+});
