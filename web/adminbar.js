@@ -10,6 +10,17 @@
       `<a href="${h}"${here === h ? ' class="on" aria-current="page"' : ''}>${t}</a>`).join('')}</nav>${extra}
       <a class="signout" href="/logout">Sign out</a></div>`;
   };
+  // Unread messages: "Messages (2)" in red
+  window.updateUnread = async function () {
+    try {
+      const r = await (await fetch('/api/manage/unread', { cache: 'no-store' })).json();
+      document.querySelectorAll('.anav a[href="/admin/messages"]').forEach(a => {
+        a.textContent = r.unread ? `Messages (${r.unread})` : 'Messages';
+        a.classList.toggle('unread', !!r.unread);
+      });
+    } catch {}
+  };
+  setTimeout(window.updateUnread, 300);
   const slot = document.getElementById('adminBar');
   if (slot && slot.dataset.static !== undefined) slot.innerHTML = window.adminBarHtml(`<a class="viewsite" href="/">View site ↗</a>`);
 })();

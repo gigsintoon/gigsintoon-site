@@ -7,7 +7,7 @@
   <link rel="icon" href="/favicon.svg" type="image/svg+xml">
   <link rel="icon" href="/favicon-32.png" sizes="32x32">
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
-  <link rel="stylesheet" href="/styles.css?v=202611131300">
+  <link rel="stylesheet" href="/styles.css?v=202611142350">
   <link rel="stylesheet" href="/admin.css?v=202611130930">
 </head>
 <body>
@@ -19,7 +19,7 @@
     <div id="adminBar" class="adminbar" data-static></div>
   </header>
   <script src="/topbar.js?v=202611130900"></script>
-  <script src="/adminbar.js?v=202611130300"></script>
+  <script src="/adminbar.js?v=202611142350"></script>
   <main class="wrap">
     <h1>Messages</h1>
     <div id="mlist" class="muted">Loading…</div>
@@ -55,6 +55,7 @@
       const body = act ? { id: b.dataset.id, action: act } : { id: b.dataset.id, read: b.dataset.read === '1' };
       b.disabled = true;
       await fetch('/api/manage/messages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (window.updateUnread) window.updateUnread();
       load();
     });
     load();

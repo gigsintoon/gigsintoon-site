@@ -161,3 +161,4 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .emptyfun .joke{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:10px 0;font-size:17px}
 .emptyfun.xmas{border-color:var(--red);background:linear-gradient(180deg,rgba(229,72,77,.12),var(--panel) 60%)}
 .emptyfun button{margin:6px 4px 0}
+.anav a.unread{color:#e5484d;font-weight:700}

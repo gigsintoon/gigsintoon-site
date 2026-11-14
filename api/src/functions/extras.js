@@ -2,6 +2,9 @@ const { app } = require('@azure/functions');
 const crypto = require('crypto');
 const { sql, query, json, fail } = require('../db');
 const { isOwner } = require('../auth');
+const store = require('../store');
+// Unread-message count for the admin bar, kept in Table Storage so showing it never wakes the database
+const setUnread = async () => { const r = await query(`SELECT COUNT(*) AS n FROM music.Messages WHERE IsRead = 0 AND DeletedAt IS NULL`); await store.put('meta', 'messages', 'unread', { N: r[0].n }); };
 
 // A rough per-visitor limit (5 messages an hour) without storing anyone's IP address
 const recent = new Map();
@@ -36,6 +39,7 @@ app.http('contact', {
       await query(`INSERT music.Messages (MessageId, ReceivedAt, Name, Email, Topic, Body) VALUES (@id, @at, @n, @e, @t, @b)`, {
         id: [sql.NVarChar(40), id], at: [sql.DateTime2, at], n: [sql.NVarChar(100), name || null], e: [sql.NVarChar(200), email || null],
         t: [sql.NVarChar(50), topic], b: [sql.NVarChar(4000), message] });
+      await setUnread().catch(() => {});
       return json({ ok: true });
     } catch (err) {
       return fail(context, err);
@@ -63,11 +67,13 @@ app.http('adminMessages', {
           : b.action === 'restore' ? `UPDATE music.Messages SET DeletedAt = NULL WHERE MessageId = @id`
           : `UPDATE music.Messages SET IsRead = @r WHERE MessageId = @id`;
         await query(sqlText, { id, r: [sql.Bit, !!b.read] });
+        await setUnread().catch(() => {});
         return json({ ok: true });
       }
       // Messages in the bin are removed for good 30 days after they were deleted
       await query(`DELETE music.Messages WHERE DeletedAt < DATEADD(day, -30, SYSUTCDATETIME())`);
       const all = (await query(`SELECT * FROM music.Messages ORDER BY ReceivedAt DESC`)).map(msgOut);
+      await setUnread().catch(() => {});
       return json({ messages: all.filter(m => !m.deletedAt), bin: all.filter(m => m.deletedAt) });
     } catch (err) {
       return fail(context, err);
@@ -206,5 +212,17 @@ app.http('manageRemembering', {
         { j: [sql.NVarChar(sql.MAX), JSON.stringify(clean)] });
       return json({ ok: true, count: clean.length });
     } catch (err) { context.error(err); return json({ ok: false, error: err.message }, 500); }
+  }
+});
+
+// GET /api/manage/unread (owner) -> { unread: n } for the admin bar (no database needed)
+app.http('adminUnread', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'manage/unread',
+  handler: async (request) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    const e = await store.get('meta', 'messages', 'unread').catch(() => null);
+    return json({ unread: e ? Number(e.N) || 0 : null });
   }
 });
