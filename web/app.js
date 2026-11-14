@@ -260,6 +260,49 @@ function showOnly(id) {
   document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
 }
 
+// Days with nothing on them get something fun instead of a blank page
+const EMPTY_JOKES = [
+  ['Why did the drummer get a job at the bakery?', 'He was great at rolls. 🥁'],
+  ['How do you make a bandstand?', 'Take away their chairs. 🪑'],
+  ['What do you call a guitarist who only knows two chords?', 'A music critic. 🎸'],
+  ['Why did the singer climb a ladder?', 'To reach the high notes. 🎤'],
+  ['What\'s the difference between a bassist and a pizza?', 'A pizza can feed a family of four. 🍕'],
+  ['How many guitarists does it take to change a lightbulb?', 'Five. One to change it, four to say they could have done it better. 💡'],
+  ['Why couldn\'t the band find their drummer?', 'He was still in the Green Room, counting to four. ⏱️'],
+  ['What\'s a skeleton\'s favourite instrument?', 'The trom-bone. 💀'],
+  ['Why did the pop punk band cross the road?', 'Because it was all the small things. 🛣️'],
+  ['What do you call a cow that plays guitar?', 'A moo-sician. 🐄'],
+  ['Why do bands never play hide and seek?', 'Because good luck hiding from the sound engineer. 🔊'],
+  ['What kind of music are balloons scared of?', 'Pop. 🎈'],
+  ['How do you fix a broken tuba?', 'With a tuba glue. 🎺'],
+  ['What did the Britpop fan say at the checkout?', '"Do you have any Blur-ry receipts?" (We\'re sorry.) 🧾'],
+  ['Why was the setlist so calm?', 'It knew the encore was coming. 🙌']
+];
+function pickJoke(not) {
+  let i = Math.floor(Math.random() * EMPTY_JOKES.length);
+  if (String(i) === String(not)) i = (i + 1) % EMPTY_JOKES.length;
+  const [q, a] = EMPTY_JOKES[i];
+  const p = document.getElementById('emptyJoke'); if (p) p.dataset.i = i;
+  return `<strong>${esc(q)}</strong><br>${esc(a)}`;
+}
+function emptyDayCard(m, d) {
+  if (m === 12 && (d === 24 || d === 25)) {
+    return `<div class="card emptyfun xmas"><div class="emptyemoji">🎄</div>
+      <h3>${d === 24 ? 'It\'s Christmas Eve!' : 'Merry Christmas!'}</h3>
+      <p>Even the bands take Christmas off – nothing was released on this day.</p>
+      <p>Put the kettle on, grab a mince pie and stick on your favourite festive tune. 🎅🎶</p>
+      <p><button id="emptySurprise" type="button">🎁 Unwrap a random release</button></p></div>`;
+  }
+  const i = Math.floor(Math.random() * EMPTY_JOKES.length);
+  const [q, a] = EMPTY_JOKES[i];
+  return `<div class="card emptyfun"><div class="emptyemoji">🦗</div>
+    <h3>Nothing released on this day… yet!</h3>
+    <p>So here's a terrible music joke instead:</p>
+    <p id="emptyJoke" class="joke" data-i="${i}"><strong>${esc(q)}</strong><br>${esc(a)}</p>
+    <p><button id="emptyAnother" type="button" class="ghost">😂 Another one</button> <button id="emptySurprise" type="button">🎲 Surprise me</button></p>
+    <p class="muted">Know something that came out on this day? <a href="/contact">Let me know</a>.</p></div>`;
+}
+
 async function showDay(date) {
   current = date;
   const m = date.getUTCMonth() + 1, d = date.getUTCDate();
@@ -284,7 +327,11 @@ async function showDay(date) {
     const teasers = data.teasers || [];
     $('releases').innerHTML = (n ? data.releases.map(r => releaseCard(r, { viewYear, isToday })).join('') : '')
       + teasers.map(teaserCard).join('')
-      || '<p class="empty">Nothing recorded for this day yet.</p>';
+      || ($('gigs').innerHTML ? '<p class="empty">Nothing recorded for this day yet.</p>' : emptyDayCard(m, d));
+    const emptyBtn = document.getElementById('emptySurprise');
+    if (emptyBtn) emptyBtn.onclick = () => showSurprise();
+    const jokeBtn = document.getElementById('emptyAnother');
+    if (jokeBtn) jokeBtn.onclick = () => { const p = document.getElementById('emptyJoke'); if (p) p.innerHTML = pickJoke(p.dataset.i); };
     if (teasers.length) $('daySummary').textContent += `${n ? ' · ' : ''}${teasers.length} still to come – guess them from the clues`;
   } catch (e) {
     $('daySummary').textContent = e.message;

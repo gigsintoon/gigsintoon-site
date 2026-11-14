@@ -155,3 +155,9 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .noshare body{-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 .noshare input,.noshare textarea,.noshare select{-webkit-user-select:text;user-select:text}
 .noshare img{-webkit-user-drag:none;user-drag:none;-webkit-touch-callout:none}
+.card.emptyfun{display:block!important;grid-column:1/-1;padding:28px 24px;text-align:center;align-items:center;gap:4px}
+.emptyfun h3{margin:4px 0 8px;font-size:22px}.emptyfun p{margin:6px auto;max-width:520px}
+.emptyfun .emptyemoji{font-size:48px;line-height:1}
+.emptyfun .joke{background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:14px 18px;margin:10px 0;font-size:17px}
+.emptyfun.xmas{border-color:var(--red);background:linear-gradient(180deg,rgba(229,72,77,.12),var(--panel) 60%)}
+.emptyfun button{margin:6px 4px 0}
