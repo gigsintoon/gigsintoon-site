@@ -54,12 +54,30 @@ function renderWriteUp(text) {
   return out + esc(text.slice(last));
 }
 
-async function api(path) {
+async function api(path, attempt = 1) {
   const sep = path.includes('?') ? '&' : '?';
-  const res = await fetch('/api/' + path + (isAdmin && asVisitor ? sep + 'view=public' : ''), { headers: { Accept: 'application/json' } });
-  const body = await res.json().catch(() => ({}));
+  let res, body;
+  try {
+    res = await fetch('/api/' + path + (isAdmin && asVisitor ? sep + 'view=public' : ''), { headers: { Accept: 'application/json' } });
+    body = await res.json().catch(() => ({}));
+  } catch (e) { res = { ok: false, status: 0 }; body = {}; }
+  // The database can take a few seconds to wake after a quiet spell: wait and try again rather than show an error
+  if ((!res.ok && (res.status === 0 || res.status >= 500)) && attempt < 3) {
+    showWaking(true);
+    await new Promise(r => setTimeout(r, 2500 * attempt));
+    try { return await api(path, attempt + 1); } finally { if (attempt === 1) showWaking(false); }
+  }
   if (!res.ok) throw new Error(body.error || ('Request failed (' + res.status + ')'));
   return body;
+}
+function showWaking(on) {
+  let el = document.getElementById('wakingNote');
+  if (on && !el) {
+    el = document.createElement('div'); el.id = 'wakingNote'; el.setAttribute('role', 'status');
+    el.textContent = '⏳ Just a moment – waking things up…';
+    el.style.cssText = 'position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:#222;color:#fff;padding:8px 14px;border-radius:20px;font-size:14px;z-index:999;box-shadow:0 2px 10px rgba(0,0,0,.4)';
+    document.body.appendChild(el);
+  } else if (!on && el) el.remove();
 }
 
 // Cover, with CD1 / CD2 / CD3 buttons when a single came out on more than one CD

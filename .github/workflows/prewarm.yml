@@ -1,0 +1,19 @@
+name: Midnight pre-warm
+# Just after midnight UK time, load the day's main pages once so they're saved ready-made.
+# After that, visitors are served without waking the SQL database (it pauses after an hour idle).
+on:
+  schedule:
+    - cron: '3 0 * * *'    # 00:03 UTC = 00:03 UK in winter
+    - cron: '3 23 * * *'   # 23:03 UTC = 00:03 UK in summer (BST)
+  workflow_dispatch:
+jobs:
+  warm:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          H=$(TZ=Europe/London date +%H)
+          if [ "$H" != "00" ] && [ "${{ github.event_name }}" = "schedule" ]; then echo "Not midnight in the UK ($H) - skipping"; exit 0; fi
+          M=$(TZ=Europe/London date +%-m); D=$(TZ=Europe/London date +%-d); Y=$(TZ=Europe/London date +%Y)
+          for u in "/api/onthisday?month=$M&day=$D" /api/week /api/guess /api/favourites /api/stats /api/years "/api/years/$Y" /api/random /api/sitemap; do
+            curl -sS -m 90 -o /dev/null -w "$u %{http_code} %{time_total}s\n" "https://www.gigsintoon.co.uk$u" || true
+          done

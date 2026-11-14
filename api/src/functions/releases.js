@@ -1,5 +1,6 @@
 const { app } = require('@azure/functions');
 const { sql, query, json, fail } = require('../db');
+const store = require('../store');
 const { buildHandleMap, handlesFor, norm } = require('../handles');
 const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
 const crypto = require('crypto');
@@ -339,21 +340,13 @@ app.http('hit', {
       try { ref = b.ref ? new URL(b.ref).hostname.replace(/^www\./, '') : ''; } catch { ref = ''; }
       if (/gigsintoon\.co\.uk$/.test(ref)) ref = '';
       const device = /mobile|android|iphone|ipad/i.test(ua) ? 'mobile' : 'desktop';
-      await ensureHits();
-      await query(`MERGE music.PageViews AS t
-        USING (SELECT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE) AS ViewDate, @p AS Path, @r AS RefHost, @d AS Device) s
-        ON t.ViewDate = s.ViewDate AND t.Path = s.Path AND t.RefHost = s.RefHost AND t.Device = s.Device
-        WHEN MATCHED THEN UPDATE SET Views = t.Views + 1
-        WHEN NOT MATCHED THEN INSERT (ViewDate, Path, RefHost, Device, Views) VALUES (s.ViewDate, s.Path, s.RefHost, s.Device, 1);`,
-        { p: [sql.NVarChar(200), path], r: [sql.NVarChar(200), ref.slice(0, 200)], d: [sql.NVarChar(10), device] });
-      // Rough location from the visitor's own clock setting (time zone such as Europe/London) - no IP lookups, no cookies.
-      // music.PageViewPlaces is made by db/005; until then this quietly does nothing.
+      // Counted in Table Storage (no database wake-up for visitors); keyed by UK date
+      const today = ukDay();
       const tz = /^[A-Za-z_]+(\/[A-Za-z0-9_+-]+){0,2}$/.test(String(b.tz || '')) ? String(b.tz).slice(0, 60) : 'Unknown';
-      await query(`MERGE music.PageViewPlaces AS t
-        USING (SELECT CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE) AS ViewDate, @z AS Place) s
-        ON t.ViewDate = s.ViewDate AND t.Place = s.Place
-        WHEN MATCHED THEN UPDATE SET Views = t.Views + 1
-        WHEN NOT MATCHED THEN INSERT (ViewDate, Place, Views) VALUES (s.ViewDate, s.Place, 1);`, { z: [sql.NVarChar(60), tz] }).catch(() => {});
+      await Promise.all([
+        store.incr('pageviews', today, `${path}|${ref.slice(0, 200)}|${device}`, { Views: 1 }, { Path: path, RefHost: ref.slice(0, 200), Device: device }),
+        store.incr('pageplaces', today, tz, { Views: 1 }, { Place: tz }).catch(() => {})
+      ]);
       return { status: 204 };
     } catch (err) {
       context.error(err);
@@ -361,6 +354,26 @@ app.http('hit', {
     }
   }
 });
+
+// Page views by day/page/referrer/place for the last n UK days, from Table Storage
+const lastDays = n => { const out = []; let d = ukDay(); for (let i = 0; i < n; i++) { out.unshift(d); d = dayBefore(d); } return out; };
+async function visitData(days, top = 20) {
+  const ds = lastDays(days);
+  const chunks = []; for (let i = 0; i < ds.length; i += 15) chunks.push(ds.slice(i, i + 15));
+  const pv = [], pl = [];
+  for (const c of chunks) {
+    const [a, b] = await Promise.all([Promise.all(c.map(d => store.rows('pageviews', d))), Promise.all(c.map(d => store.rows('pageplaces', d).catch(() => [])))]);
+    a.forEach(x => pv.push(...x)); b.forEach(x => pl.push(...x));
+  }
+  const sum = (rows, keyFn) => { const m = new Map(); for (const r of rows) { const k = keyFn(r); if (k === null) continue; m.set(k, (m.get(k) || 0) + Number(r.Views || 0)); } return m; };
+  const dayMap = new Map(); for (const r of pv) { const e = dayMap.get(r.pk) || { Views: 0, Mobile: 0 }; e.Views += Number(r.Views || 0); if (r.Device === 'mobile') e.Mobile += Number(r.Views || 0); dayMap.set(r.pk, e); }
+  const byDay = [...dayMap.entries()].sort().map(([d, e]) => ({ ViewDate: d + 'T00:00:00.000Z', Views: e.Views, Mobile: e.Mobile }));
+  const topList = (m, name) => [...m.entries()].sort((x, y) => y[1] - x[1]).slice(0, top).map(([k, v]) => ({ [name]: k, Views: v }));
+  const l7 = new Set(lastDays(7));
+  return { byDay, pages: topList(sum(pv, r => r.Path || '/'), 'Path'), refs: topList(sum(pv, r => r.RefHost ? r.RefHost : null), 'RefHost'),
+           places: topList(sum(pl, r => r.Place || r.rk), 'Place'),
+           last7: byDay.filter(r => l7.has(r.ViewDate.slice(0, 10))).map(r => ({ ViewDate: r.ViewDate, Views: r.Views })) };
+}
 
 // GET /api/manage/visits?days=30 (owner only) -> page views by day, page and referrer
 app.http('visits', {
@@ -371,19 +384,7 @@ app.http('visits', {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
     const days = Math.min(365, Math.max(1, parseInt(request.query.get('days'), 10) || 30));
     try {
-      await ensureHits();
-      const p = { n: [sql.Int, days] };
-      const since = `DATEADD(day, -@n + 1, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE))`;
-      const [byDay, pages, refs, places, last7] = await Promise.all([query(`SELECT ViewDate, SUM(Views) AS Views, SUM(CASE WHEN Device='mobile' THEN Views ELSE 0 END) AS Mobile
-        FROM music.PageViews WHERE ViewDate >= ${since} GROUP BY ViewDate ORDER BY ViewDate`, p),
-      query(`SELECT TOP 20 Path, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since}
-        GROUP BY Path ORDER BY Views DESC`, p),
-      query(`SELECT TOP 20 RefHost, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since} AND RefHost <> ''
-        GROUP BY RefHost ORDER BY Views DESC`, p),
-      query(`SELECT TOP 20 Place, SUM(Views) AS Views FROM music.PageViewPlaces WHERE ViewDate >= ${since}
-        GROUP BY Place ORDER BY Views DESC`, p).catch(() => []),
-      query(`SELECT ViewDate, SUM(Views) AS Views FROM music.PageViews
-        WHERE ViewDate >= DATEADD(day, -6, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY ViewDate`)]);
+      const { byDay, pages, refs, places, last7 } = await visitData(days);
       return json({ days, byDay, pages, refs, places, last7 });
     } catch (err) {
       return fail(context, err);
@@ -407,12 +408,17 @@ app.http('randomRelease', {
   handler: async (request, context) => {
     if (prelaunch(request)) return prelaunchResponse();
     try {
-      const rows = await query(
-        `SELECT TOP 1 r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day
-           FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
-          WHERE ${VISIBLE} AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
-          ORDER BY NEWID()`);
-      return json(rows[0] || {}, 200);
+      // The list of candidates is kept ready-made for the day, so "Surprise me" doesn't wake the database.
+      const stamp = (await store.dataVersion()) + '|' + ukDay();
+      let pool = await store.getCached('randompool', stamp);
+      if (!pool) {
+        pool = (await query(`SELECT r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day
+             FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+            WHERE ${VISIBLE} AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)`)).map(r => [r.ReleaseId, r.Month, r.Day]);
+        await store.setCached('randompool', stamp, pool).catch(() => {});
+      }
+      const pick = pool[Math.floor(Math.random() * pool.length)];
+      return json(pick ? { ReleaseId: pick[0], Month: pick[1], Day: pick[2] } : {}, 200);
     } catch (err) { return fail(context, err); }
   }
 });
@@ -588,19 +594,57 @@ async function rememberingFor(month, day) {
   return list.map(x => ({ name: x.name, year: x.year, age: x.age, note: x.note || null,
     bands: (x.bands || []).filter(b => ids.has(b.toLowerCase())).map(b => ({ name: b, id: ids.get(b.toLowerCase()) })) }));
 }
-// Guess the cover tally and leaderboard live in music.GuessWeeks / music.GuessScores
+// Guess the cover tally and leaderboard. Daily puzzles keep them in Table Storage (tables "guesstally" and
+// "guessscores") so playing never wakes the SQL database; the old weekly ones stay in music.GuessWeeks / music.GuessScores.
+const isDaily = period => /^\d{4}-\d{2}-\d{2}$/.test(period);
 async function tallyFor(week) {
+  if (isDaily(week)) { const e = await store.get('guesstally', week, 't'); return { tries: Number(e && e.Tries) || 0, correct: Number(e && e.Correct) || 0 }; }
   const r = await query(`SELECT Tries, Correct FROM music.GuessWeeks WHERE Week = @w`, { w: [sql.NVarChar(10), week] });
   return r[0] ? { tries: r[0].Tries, correct: r[0].Correct } : { tries: 0, correct: 0 };
 }
 async function bumpTally(week, ok) {
+  if (isDaily(week)) { await store.incr('guesstally', week, 't', { Tries: 1, Correct: ok ? 1 : 0 }); return; }
   await query(`MERGE music.GuessWeeks AS t USING (SELECT @w AS Week) s ON t.Week = s.Week
     WHEN MATCHED THEN UPDATE SET Tries = Tries + 1, Correct = Correct + @c
     WHEN NOT MATCHED THEN INSERT (Week, Tries, Correct) VALUES (@w, 1, @c);`, { w: [sql.NVarChar(10), week], c: [sql.Int, ok ? 1 : 0] });
 }
 async function scoresFor(week) {
+  if (isDaily(week)) {
+    return (await store.rows('guessscores', week)).map(e => ({ id: e.rk, name: e.Name, guesses: Number(e.Guesses), ms: Number(e.Ms) }))
+      .sort((x, y) => x.guesses - y.guesses || x.ms - y.ms);
+  }
   return (await query(`SELECT ScoreId, Name, Guesses, Ms FROM music.GuessScores WHERE Week = @w ORDER BY Guesses, Ms`, { w: [sql.NVarChar(10), week] }))
     .map(r => ({ id: r.ScoreId, name: r.Name, guesses: r.Guesses, ms: r.Ms }));
+}
+async function addScore(week, id, name, guesses, ms) {
+  if (isDaily(week)) return store.insertIfNew('guessscores', week, id, { Name: name, Guesses: guesses, Ms: ms, CreatedAt: new Date().toISOString() });
+  const ins = await query(`IF NOT EXISTS (SELECT 1 FROM music.GuessScores WHERE ScoreId = @id)
+      INSERT music.GuessScores (ScoreId, Week, Name, Guesses, Ms, CreatedAt) VALUES (@id, @w, @n, @g, @ms, SYSUTCDATETIME());
+    SELECT @@ROWCOUNT AS n;`, { id: [sql.NVarChar(20), id], w: [sql.NVarChar(10), week], n: [sql.NVarChar(24), name], g: [sql.Int, guesses], ms: [sql.Int, ms] });
+  return !!(ins[0] && ins[0].n);
+}
+async function removeScore(week, id) {
+  if (isDaily(week)) return store.del('guessscores', week, id);
+  await query(`DELETE music.GuessScores WHERE Week = @w AND ScoreId = @id`, { w: [sql.NVarChar(10), week], id: [sql.NVarChar(20), String(id)] });
+}
+async function resetDay(week) {
+  if (isDaily(week)) {
+    await store.del('guesstally', week, 't');
+    for (const e of await store.rows('guessscores', week)) await store.del('guessscores', week, e.rk);
+    return;
+  }
+  await query(`DELETE music.GuessWeeks WHERE Week = @w; DELETE music.GuessScores WHERE Week = @w;`, { w: [sql.NVarChar(10), week] });
+}
+// The day's puzzle itself is kept ready-made too (it's fixed once picked)
+async function puzzleCached(period, opts) {
+  if (!isDaily(period)) return puzzleFor(period, opts);
+  const stamp = await store.dataVersion();
+  const k = 'guess-puzzle-' + period;
+  const hit = await store.getCached(k, stamp).catch(() => undefined);
+  if (hit) return hit;
+  const p = await puzzleFor(period, opts);
+  if (p) await store.setCached(k, stamp, p).catch(() => {});
+  return p;
 }
 app.http('guess', {
   methods: ['GET', 'POST'],
@@ -623,22 +667,21 @@ app.http('guess', {
         const open = rq < week || (rq === week && (ukHour() >= 23 || (ukHour() === 22 && new Date().getUTCMinutes() >= 30)));
         if (!open && !isOwner(request)) return json({ error: 'Results are available from 10:30pm UK.' }, 403);
         if (rq < DAILY_FROM) return json({ day: rq, puzzle: null, note: 'Daily puzzles start ' + DAILY_FROM }, 404);
-        const rp = await puzzleFor(rq, { create: false });
+        const rp = await puzzleCached(rq, { create: false });
         if (!rp) return json({ day: rq, puzzle: null }, 404);
         const scores = await scoresFor(rq);
         return json({ day: rq, answer: { artist: rp.Artist, title: rp.Title, year: rp.ReleaseYear, type: rp.ReleaseType, cover: rp.CoverUrl,
                       month: rp.ReleaseMonth, day: rp.ReleaseDay, bandId: rp.BandId }, tally: await tallyFor(rq), winners: boardTop(scores, 10), players: scores.length });
       }
-      const p = await puzzleFor(week);
+      const p = await puzzleCached(week);
       if (!p) return json({ error: 'No puzzle today.' }, 404);
       let tally = await tallyFor(week);
       if (request.method === 'POST') {
         const b = await request.json().catch(() => ({}));
-        const W = [sql.NVarChar(10), week];
-        if (b.resetTally && isOwner(request)) { await query(`DELETE music.GuessWeeks WHERE Week = @w; DELETE music.GuessScores WHERE Week = @w;`, { w: W }); return json({ ok: true }); }
+        if (b.resetTally && isOwner(request)) { await resetDay(week); return json({ ok: true }); }
         if (b.board) {
           if (b.remove && isOwner(request)) {
-            await query(`DELETE music.GuessScores WHERE Week = @w AND ScoreId = @id`, { w: W, id: [sql.NVarChar(20), String(b.remove)] });
+            await removeScore(week, String(b.remove));
             return json({ ok: true, board: boardTop(await scoresFor(week)) });
           }
           const w = readTok(b.win);
@@ -647,10 +690,7 @@ app.http('guess', {
           const name = cleanName(b.name);
           if (name.length < 2) return json({ ok: false, error: 'Please enter a name (2–24 characters).' }, 400);
           if (BAD_NAME.test(name.replace(/[^a-z0-9]/gi, ''))) return json({ ok: false, error: 'Please choose a different name.' }, 400);
-          const ins = await query(`IF NOT EXISTS (SELECT 1 FROM music.GuessScores WHERE ScoreId = @id)
-              INSERT music.GuessScores (ScoreId, Week, Name, Guesses, Ms, CreatedAt) VALUES (@id, @w, @n, @g, @ms, SYSUTCDATETIME());
-            SELECT @@ROWCOUNT AS n;`, { id: [sql.NVarChar(20), w.id], w: W, n: [sql.NVarChar(24), name], g: [sql.Int, w.n], ms: [sql.Int, Math.min(w.ms, 2e9)] });
-          if (!ins[0] || !ins[0].n) return json({ ok: false, error: "You're already on the board!" }, 400);
+          if (!(await addScore(week, w.id, name, w.n, Math.min(w.ms, 2e9)))) return json({ ok: false, error: "You're already on the board!" }, 400);
           const list = await scoresFor(week);
           const ranked = list;
           return json({ ok: true, place: ranked.findIndex(e => e.id === w.id) + 1, of: list.length, board: boardTop(list) });
@@ -668,7 +708,7 @@ app.http('guess', {
                       month: p.ReleaseMonth, day: p.ReleaseDay } : null, tally });
       }
       const last = /-W/.test(week) ? ukWeek(new Date(Date.now() - 7 * 86400000)) : dayBefore(week);
-      const lp = await puzzleFor(last, { create: false });
+      const lp = await puzzleCached(last, { create: false });
       const lt = await tallyFor(last);
       const letter = p.Artist.replace(/^the\s+/i, '').charAt(0).toUpperCase();
       const tw = p.Title.trim().split(/\s+/);
@@ -721,10 +761,7 @@ app.http('report', {
       if (!want || want.length !== got.length || !crypto.timingSafeEqual(want, got)) return json({ error: 'Not allowed.' }, 403);
       let visits = null;
       try {
-        const byDay = await query(`SELECT ViewDate, SUM(Views) AS Views, SUM(CASE WHEN Device='mobile' THEN Views ELSE 0 END) AS Mobile
-          FROM music.PageViews WHERE ViewDate >= DATEADD(day, -7, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY ViewDate ORDER BY ViewDate`);
-        const pages = await query(`SELECT TOP 10 Path, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= DATEADD(day, -7, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY Path ORDER BY Views DESC`);
-        const refs = await query(`SELECT TOP 10 RefHost, SUM(Views) AS Views FROM music.PageViews WHERE RefHost <> '' AND ViewDate >= DATEADD(day, -7, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY RefHost ORDER BY Views DESC`);
+        const { byDay, pages, refs } = await visitData(8, 10);
         visits = { byDay, pages, refs };
       } catch { visits = { unavailable: 'Visitor table not set up yet (run db/003-visits-and-permissions.sql).' }; }
       const messages = (await query(`SELECT ReceivedAt, Name, Topic, LEFT(Body, 600) AS Body, CASE WHEN Email IS NULL OR Email = '' THEN 0 ELSE 1 END AS HasEmail
@@ -818,7 +855,7 @@ app.http('guessImage', {
     if (prelaunch(request)) return prelaunchResponse();
     try {
       const week = guessPeriod();
-      const p = await puzzleFor(week);
+      const p = await puzzleCached(week);
       if (!p) return { status: 404 };
       const S = 1080;
       const cover = await blurred(p.CoverUrl, 22, 860);
@@ -917,5 +954,37 @@ app.http('week', {
       weekCache.set(key, { at: Date.now(), data });
       return json(data);
     } catch (err) { return fail(context, err); }
+  }
+});
+
+// POST /api/manage/visits-import (owner, run once) -> copy the page views counted in SQL before 15 Nov 2026 into Table Storage
+app.http('visitsImport', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/visits-import',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      if (await store.get('pageviews', 'meta', 'imported')) return json({ ok: true, already: true });
+      const pv = await query(`SELECT CONVERT(char(10), ViewDate, 23) AS D, Path, RefHost, Device, Views FROM music.PageViews`);
+      for (const r of pv) await store.incr('pageviews', r.D, `${r.Path}|${r.RefHost}|${r.Device}`, { Views: r.Views }, { Path: r.Path, RefHost: r.RefHost, Device: r.Device });
+      const pl = await query(`SELECT CONVERT(char(10), ViewDate, 23) AS D, Place, Views FROM music.PageViewPlaces`).catch(() => []);
+      for (const r of pl) await store.incr('pageplaces', r.D, r.Place, { Views: r.Views }, { Place: r.Place });
+      await store.put('pageviews', 'meta', 'imported', { At: new Date().toISOString(), Rows: pv.length + pl.length });
+      return json({ ok: true, pageViews: pv.length, places: pl.length });
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+// POST /api/manage/rebuild {month, day} | {favourites:true} | {all:true} (owner) -> refresh the ready-made pages
+// (any admin save already does this; use it after changes made outside the admin pages, e.g. direct SQL or blob uploads)
+app.http('rebuild', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/rebuild',
+  handler: async (request) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    const v = await store.bumpVersion();     // the wrapper bumps it too; harmless
+    return json({ ok: true, version: v });
   }
 });
