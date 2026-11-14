@@ -54,10 +54,12 @@ function week7(rows) {
   const max = Math.max(1, ...days.map(d => d.n));
   return `<div class="w7">${days.map(d => `<div class="w7d"><span class="w7n">${d.n}</span><div class="w7b"><i style="height:${Math.round(d.n / max * 100)}%"></i></div><span class="w7l">${d.label}</span></div>`).join('')}</div>`;
 }
-async function loadVisits(days = 30) {
-  $('visitBody').textContent = 'Loading…';
+async function loadVisits(days = 30, attempt = 1) {
+  $('visitBody').textContent = attempt > 1 ? 'Still loading – the database was asleep, waking it up…' : 'Loading…';
   try {
-    const v = await (await fetch('/api/manage/visits?days=' + days)).json();
+    const r = await fetch('/api/manage/visits?days=' + days);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const v = await r.json();
     const total = v.byDay.reduce((s, d) => s + d.Views, 0), mob = v.byDay.reduce((s, d) => s + d.Mobile, 0);
     const max = Math.max(1, ...v.byDay.map(d => d.Views));
     const bars = v.byDay.map(d => `<div class="vbar" title="${d.ViewDate.slice(0, 10)}: ${d.Views}"><i style="height:${Math.round(d.Views / max * 100)}%"></i></div>`).join('');
@@ -71,7 +73,11 @@ async function loadVisits(days = 30) {
          <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div>
            <div><h3>Where visitors are</h3>${places(v.places || [])}<p class="muted small">Worked out from each visitor's clock setting (time zone), so it's the region rather than an exact town.</p></div></div>`
       : '<p>No visits counted in this period yet.</p>';
-  } catch { $('visitBody').textContent = 'Couldn\'t load visitor numbers.'; }
+  } catch {
+    if (attempt < 3) return setTimeout(() => loadVisits(days, attempt + 1), 3000);   // first request after a quiet spell can time out
+    $('visitBody').innerHTML = 'Couldn\'t load visitor numbers. <button type="button" class="ghost" id="visitRetry">Try again</button>';
+    $('visitRetry').onclick = () => loadVisits(days);
+  }
 }
 $('range').addEventListener('click', e => { const b = e.target.closest('[data-d]'); if (!b) return;
   document.querySelectorAll('#range button').forEach(x => x.classList.toggle('on', x === b)); loadVisits(+b.dataset.d); });

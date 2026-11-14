@@ -374,16 +374,16 @@ app.http('visits', {
       await ensureHits();
       const p = { n: [sql.Int, days] };
       const since = `DATEADD(day, -@n + 1, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE))`;
-      const byDay = await query(`SELECT ViewDate, SUM(Views) AS Views, SUM(CASE WHEN Device='mobile' THEN Views ELSE 0 END) AS Mobile
-        FROM music.PageViews WHERE ViewDate >= ${since} GROUP BY ViewDate ORDER BY ViewDate`, p);
-      const pages = await query(`SELECT TOP 20 Path, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since}
-        GROUP BY Path ORDER BY Views DESC`, p);
-      const refs = await query(`SELECT TOP 20 RefHost, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since} AND RefHost <> ''
-        GROUP BY RefHost ORDER BY Views DESC`, p);
-      const places = await query(`SELECT TOP 20 Place, SUM(Views) AS Views FROM music.PageViewPlaces WHERE ViewDate >= ${since}
-        GROUP BY Place ORDER BY Views DESC`, p).catch(() => []);
-      const last7 = await query(`SELECT ViewDate, SUM(Views) AS Views FROM music.PageViews
-        WHERE ViewDate >= DATEADD(day, -6, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY ViewDate`);
+      const [byDay, pages, refs, places, last7] = await Promise.all([query(`SELECT ViewDate, SUM(Views) AS Views, SUM(CASE WHEN Device='mobile' THEN Views ELSE 0 END) AS Mobile
+        FROM music.PageViews WHERE ViewDate >= ${since} GROUP BY ViewDate ORDER BY ViewDate`, p),
+      query(`SELECT TOP 20 Path, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since}
+        GROUP BY Path ORDER BY Views DESC`, p),
+      query(`SELECT TOP 20 RefHost, SUM(Views) AS Views FROM music.PageViews WHERE ViewDate >= ${since} AND RefHost <> ''
+        GROUP BY RefHost ORDER BY Views DESC`, p),
+      query(`SELECT TOP 20 Place, SUM(Views) AS Views FROM music.PageViewPlaces WHERE ViewDate >= ${since}
+        GROUP BY Place ORDER BY Views DESC`, p).catch(() => []),
+      query(`SELECT ViewDate, SUM(Views) AS Views FROM music.PageViews
+        WHERE ViewDate >= DATEADD(day, -6, CAST(SYSDATETIMEOFFSET() AT TIME ZONE 'GMT Standard Time' AS DATE)) GROUP BY ViewDate`)]);
       return json({ days, byDay, pages, refs, places, last7 });
     } catch (err) {
       return fail(context, err);
