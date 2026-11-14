@@ -669,7 +669,11 @@ async function showSurprise() {
   $('surpriseBody').innerHTML = '<p class="muted">Picking something…</p>';
   $('surpriseDay').hidden = true;
   try {
-    const r = await api('random');
+    // Remember what this visitor has already been shown (on their own device only) and skip repeats
+    let seen = []; try { seen = JSON.parse(localStorage.getItem('surpriseSeen') || '[]'); } catch {}
+    let r = await api('random');
+    for (let i = 0; i < 10 && r.ReleaseId && seen.includes(r.ReleaseId); i++) r = await api('random');
+    if (r.ReleaseId) { seen.push(r.ReleaseId); try { localStorage.setItem('surpriseSeen', JSON.stringify(seen.slice(-1500))); } catch {} }
     if (!r.Month) { $('surpriseBody').innerHTML = '<p class="empty">Nothing to pick from yet.</p>'; return; }
     history.replaceState(null, '', '/?page=surprise');
     const data = await api(`onthisday?month=${r.Month}&day=${r.Day}`);
