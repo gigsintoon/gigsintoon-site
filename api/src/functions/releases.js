@@ -622,6 +622,7 @@ app.http('guess', {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(rq)) return json({ error: 'Use results=YYYY-MM-DD' }, 400);
         const open = rq < week || (rq === week && (ukHour() >= 23 || (ukHour() === 22 && new Date().getUTCMinutes() >= 30)));
         if (!open && !isOwner(request)) return json({ error: 'Results are available from 10:30pm UK.' }, 403);
+        if (rq < DAILY_FROM) return json({ day: rq, puzzle: null, note: 'Daily puzzles start ' + DAILY_FROM }, 404);
         const rp = await puzzleFor(rq, { create: false });
         if (!rp) return json({ day: rq, puzzle: null }, 404);
         const scores = await scoresFor(rq);
