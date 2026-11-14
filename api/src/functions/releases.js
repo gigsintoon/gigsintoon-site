@@ -495,17 +495,56 @@ function ukWeek(d = new Date()) {
   const week = 1 + Math.round(((t - firstThu) / 86400000 - 3 + ((firstThu.getUTCDay() + 6) % 7)) / 7);
   return `${t.getUTCFullYear()}-W${String(week).padStart(2, '0')}`;
 }
-async function puzzleFor(week) {
-  const rows = await query(
-    `SELECT r.ReleaseId, r.ReleaseYear, r.ReleaseType, r.Title, COALESCE(r.ArtistDisplay, b.Name) AS Artist, b.BandId,
+// Since 15 Nov 2026 it's a new cover every day: the key is the UK date, e.g. "2026-11-14".
+function ukDay(d = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
+}
+const DAILY_FROM = '2026-11-15';
+// The puzzle key for "now": the UK date from DAILY_FROM, the ISO week before that.
+const guessPeriod = (d = new Date()) => ukDay(d) >= DAILY_FROM ? ukDay(d) : ukWeek(d);
+const ukHour = (d = new Date()) => Number(new Intl.DateTimeFormat('en-GB', { timeZone: 'Europe/London', hour: '2-digit', hour12: false }).format(d)) % 24;
+const dayBefore = day => { const t = new Date(day + 'T12:00:00Z'); t.setUTCDate(t.getUTCDate() - 1); return t.toISOString().slice(0, 10); };
+// Each day's pick is saved in music.GuessPicks so it stays fixed for the day and is never used again.
+let picksReady = false;
+async function ensurePicks() {
+  if (picksReady) return;
+  await query(`IF OBJECT_ID('music.GuessPicks') IS NULL
+    CREATE TABLE music.GuessPicks (Period NVARCHAR(10) NOT NULL CONSTRAINT PK_GuessPicks PRIMARY KEY, ReleaseId INT NOT NULL,
+      PickedAt DATETIME2 NOT NULL DEFAULT SYSUTCDATETIME())`);
+  picksReady = true;
+}
+const PUZZLE_COLS = `r.ReleaseId, r.ReleaseYear, r.ReleaseType, r.Title, COALESCE(r.ArtistDisplay, b.Name) AS Artist, b.BandId,
             r.ReleaseMonth, r.ReleaseDay,
-            (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS CoverUrl
-       FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
-      WHERE ${VISIBLE} AND r.ReleaseType IN ('Album','EP','Single')
-        AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
-      ORDER BY CHECKSUM(r.ReleaseId * 7919, @w) , r.ReleaseId
-      OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY`,
-    { w: [sql.NVarChar(10), week] });
+            (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS CoverUrl`;
+async function puzzleFor(period, { create = true } = {}) {
+  if (/-W\d\d$/.test(period)) {          // old weekly puzzles (before the switch to daily)
+    const rows = await query(
+      `SELECT ${PUZZLE_COLS}
+         FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+        WHERE ${VISIBLE} AND r.ReleaseType IN ('Album','EP','Single')
+          AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
+        ORDER BY CHECKSUM(r.ReleaseId * 7919, @w) , r.ReleaseId
+        OFFSET 0 ROWS FETCH NEXT 1 ROWS ONLY`,
+      { w: [sql.NVarChar(10), period] });
+    return rows[0] || null;
+  }
+  await ensurePicks();
+  const P = { p: [sql.NVarChar(10), period] };
+  const saved = () => query(`SELECT ${PUZZLE_COLS} FROM music.GuessPicks g JOIN music.Releases r ON r.ReleaseId = g.ReleaseId
+      JOIN music.Bands b ON b.BandId = r.BandId WHERE g.Period = @p`, P);
+  let rows = await saved();
+  if (rows[0] || !create) return rows[0] || null;
+  // Not picked yet: choose a cover that hasn't been used before (or was used longest ago, once they've all had a turn)
+  await query(`IF NOT EXISTS (SELECT 1 FROM music.GuessPicks WHERE Period = @p)
+    INSERT music.GuessPicks (Period, ReleaseId)
+    SELECT TOP 1 @p, r.ReleaseId
+      FROM music.Releases r
+      LEFT JOIN (SELECT ReleaseId, MAX(PickedAt) AS LastUsed FROM music.GuessPicks GROUP BY ReleaseId) u ON u.ReleaseId = r.ReleaseId
+     WHERE ${VISIBLE} AND r.ReleaseType IN ('Album','EP','Single')
+       AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
+     ORDER BY CASE WHEN u.ReleaseId IS NULL THEN 0 ELSE 1 END, u.LastUsed, CHECKSUM(r.ReleaseId * 7919, @p), r.ReleaseId`, P)
+    .catch(e => { if (!/PRIMARY KEY|duplicate/i.test(e.message)) throw e; });   // two visitors at midnight: first one wins
+  rows = await saved();
   return rows[0] || null;
 }
 const gnorm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '').replace(/&/g, 'and').replace(/\b(the|a|an)\b/g, '').replace(/[^a-z0-9]/g, '');
@@ -562,9 +601,27 @@ app.http('guess', {
   handler: async (request, context) => {
     if (prelaunch(request)) return prelaunchResponse();
     try {
-      const week = ukWeek();
+      const week = guessPeriod();
+      // GET /api/guess?results=2026-11-14 -> that day's answer and leaderboard (for the 11pm winners post).
+      // Only for days that are over, or today from 10:30pm UK.
+      const pv = request.method === 'GET' && isOwner(request) ? String(request.query.get('preview') || '') : '';
+      if (/^\d{4}-\d{2}-\d{2}$/.test(pv)) {      // owner only: pick (or show) a day's cover in advance
+        const pp = await puzzleFor(pv);
+        return json({ day: pv, answer: pp ? { artist: pp.Artist, title: pp.Title, year: pp.ReleaseYear, id: pp.ReleaseId } : null });
+      }
+      const rq = request.method === 'GET' ? String(request.query.get('results') || '') : '';
+      if (rq) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(rq)) return json({ error: 'Use results=YYYY-MM-DD' }, 400);
+        const open = rq < week || (rq === week && (ukHour() >= 23 || (ukHour() === 22 && new Date().getUTCMinutes() >= 30)));
+        if (!open && !isOwner(request)) return json({ error: 'Results are available from 10:30pm UK.' }, 403);
+        const rp = await puzzleFor(rq, { create: false });
+        if (!rp) return json({ day: rq, puzzle: null }, 404);
+        const scores = await scoresFor(rq);
+        return json({ day: rq, answer: { artist: rp.Artist, title: rp.Title, year: rp.ReleaseYear, type: rp.ReleaseType, cover: rp.CoverUrl,
+                      month: rp.ReleaseMonth, day: rp.ReleaseDay, bandId: rp.BandId }, tally: await tallyFor(rq), winners: boardTop(scores, 10), players: scores.length });
+      }
       const p = await puzzleFor(week);
-      if (!p) return json({ error: 'No puzzle this week.' }, 404);
+      if (!p) return json({ error: 'No puzzle today.' }, 404);
       let tally = await tallyFor(week);
       if (request.method === 'POST') {
         const b = await request.json().catch(() => ({}));
@@ -576,7 +633,7 @@ app.http('guess', {
             return json({ ok: true, board: boardTop(await scoresFor(week)) });
           }
           const w = readTok(b.win);
-          if (!w || !w.win || w.w !== week) return json({ ok: false, error: 'That win has expired – have another go next week!' }, 400);
+          if (!w || !w.win || w.w !== week) return json({ ok: false, error: 'That win has expired – have another go tomorrow!' }, 400);
           if (Date.now() - w.at > 30 * 60000) return json({ ok: false, error: 'Too late to add your name for that win, sorry.' }, 400);
           const name = cleanName(b.name);
           if (name.length < 2) return json({ ok: false, error: 'Please enter a name (2–24 characters).' }, 400);
@@ -601,8 +658,8 @@ app.http('guess', {
         return json({ correct: ok, ...extra, answer: ok ? { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl,
                       month: p.ReleaseMonth, day: p.ReleaseDay } : null, tally });
       }
-      const last = ukWeek(new Date(Date.now() - 7 * 86400000));
-      const lp = await puzzleFor(last);
+      const last = /-W/.test(week) ? ukWeek(new Date(Date.now() - 7 * 86400000)) : dayBefore(week);
+      const lp = await puzzleFor(last, { create: false });
       const lt = await tallyFor(last);
       const letter = p.Artist.replace(/^the\s+/i, '').charAt(0).toUpperCase();
       const tw = p.Title.trim().split(/\s+/);
@@ -610,7 +667,7 @@ app.http('guess', {
                       bandWords: p.Artist.trim().split(/\s+/).length, month: p.ReleaseMonth };
       const board = boardTop(await scoresFor(week));
       const lastBoard = boardTop(await scoresFor(last), 3);
-      return json({ week, id: p.ReleaseId, year: p.ReleaseYear, type: p.ReleaseType, letter, hints, tally, board, lastBoard,
+      return json({ week, day: week, id: p.ReleaseId, year: p.ReleaseYear, type: p.ReleaseType, letter, hints, tally, board, lastBoard,
                     token: signTok({ w: week, t: Date.now(), n: 0 }), admin: isOwner(request),
                     lastWeek: lp ? { artist: lp.Artist, title: lp.Title, year: lp.ReleaseYear, cover: lp.CoverUrl, bandId: lp.BandId, tally: lt } : null });
     } catch (err) { return fail(context, err); }
@@ -667,8 +724,9 @@ app.http('report', {
       const todos = (await query(`SELECT Owner, Title, Answer FROM music.Todos WHERE Done = 0 ORDER BY CreatedAt`))
         .map(t => ({ owner: t.Owner, title: t.Title, answer: t.Answer || '' }));
       const additions = (await query(`SELECT COUNT(*) AS n FROM music.SiteAdditions`))[0].n;
-      const week = ukWeek(new Date(Date.now() - 7 * 86400000));
-      const guess = await tallyFor(week);
+      let gday = ukDay(), guess = { tries: 0, correct: 0, days: 0 };
+      for (let i = 0; i < 7; i++) { gday = dayBefore(gday); const t = await tallyFor(gday); guess.tries += t.tries; guess.correct += t.correct; if (t.tries) guess.days++; }
+      const week = `last 7 days to ${dayBefore(ukDay())}`;
       const [counts] = await query(`SELECT (SELECT COUNT(*) FROM music.Releases) AS Releases, (SELECT COUNT(*) FROM music.Gigs) AS Gigs`);
       return json({ generated: new Date().toISOString(), visits, unreadMessages: messages, openTodos: todos, siteAdditionsWaiting: additions, guessTheCover: { week, ...guess }, counts });
     } catch (err) { return fail(context, err); }
@@ -742,7 +800,7 @@ app.http('roundup', {
   }
 });
 
-// GET /api/guess-image/2026-W47.jpg -> this week's mystery cover, blurred, with a "Guess the cover" banner (for Monday's post)
+// GET /api/guess-image/2026-11-15.jpg -> today's mystery cover, blurred, with a "Guess the cover" banner (for social posts)
 app.http('guessImage', {
   methods: ['GET'],
   authLevel: 'anonymous',
@@ -750,7 +808,7 @@ app.http('guessImage', {
   handler: async (request, context) => {
     if (prelaunch(request)) return prelaunchResponse();
     try {
-      const week = ukWeek();
+      const week = guessPeriod();
       const p = await puzzleFor(week);
       if (!p) return { status: 404 };
       const S = 1080;
