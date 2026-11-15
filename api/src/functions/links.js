@@ -89,17 +89,20 @@ async function deezerMatch(rel) {
   const a = norm(rel.Band), t = norm(cleanTitle(rel.Title));
   if (!a || !t) return null;
   const isSingle = rel.ReleaseType === 'Single';
-  const q = encodeURIComponent(`artist:"${rel.Band}" album:"${cleanTitle(rel.Title)}"`);
-  let res = await dz(`/search/album?q=${q}&limit=25`);
-  if (!(res.data || []).length) res = await dz(`/search/album?q=${encodeURIComponent(rel.Band + ' ' + cleanTitle(rel.Title))}&limit=25`);
-  const albums = (res.data || []).filter(x => norm(x.artist && x.artist.name) === a && norm(cleanTitle(x.title)) === t)
+  const plain = encodeURIComponent(rel.Band + ' ' + cleanTitle(rel.Title));
+  const adv = await dz(`/search/album?q=${encodeURIComponent(`artist:"${rel.Band}" album:"${cleanTitle(rel.Title)}"`)}&limit=25`);
+  const pl = await dz(`/search/album?q=${plain}&limit=50`);
+  const albums = [...(adv.data || []), ...(pl.data || [])].filter(x => norm(x.artist && x.artist.name) === a && norm(cleanTitle(x.title)) === t)
     .filter(x => isSingle ? true : x.record_type !== 'single');
   albums.sort((x, y) => (isSingle ? (y.record_type === 'single') - (x.record_type === 'single') : (y.nb_tracks || 0) - (x.nb_tracks || 0)));
   if (albums[0]) return { url: `https://www.deezer.com/album/${albums[0].id}`, how: `album "${albums[0].title}" (${albums[0].record_type}, ${albums[0].nb_tracks || '?'} tracks)` };
   if (!isSingle) return null;
-  const tq = encodeURIComponent(`artist:"${rel.Band}" track:"${cleanTitle(rel.Title)}"`);
-  const tr = await dz(`/search/track?q=${tq}&limit=25`);
-  const songs = (tr.data || []).filter(x => norm(x.artist && x.artist.name) === a && norm(cleanTitle(x.title_short || x.title)) === t);
+  const tr = await dz(`/search/track?q=${plain}&limit=50`);
+  const mine = (tr.data || []).filter(x => norm(x.artist && x.artist.name) === a);
+  // a single Deezer only has inside another release: the single's own page if it shows up via its songs, else the song
+  const asAlbum = mine.find(x => x.album && norm(cleanTitle(x.album.title)) === t);
+  if (asAlbum) return { url: `https://www.deezer.com/album/${asAlbum.album.id}`, how: `album "${asAlbum.album.title}" (found via its songs)` };
+  const songs = mine.filter(x => norm(cleanTitle(x.title_short || x.title)) === t);
   if (songs[0]) return { url: `https://www.deezer.com/track/${songs[0].id}`, how: `song on "${songs[0].album && songs[0].album.title}"` };
   return null;
 }
