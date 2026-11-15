@@ -73,7 +73,7 @@ app.http('adminWriteupReplace', {
 // singles can also fall back to the song itself when Deezer has no separate single.
 const norm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
   .replace(/&/g, 'and').replace(/^the\s+/, '').replace(/[^a-z0-9]/g, '');
-const cleanTitle = s => String(s || '').replace(/\s*[([](?:remaster|deluxe|expanded|anniversary|explicit|single|ep|edit|radio edit|bonus)[^)\]]*[)\]]/gi, '')
+const cleanTitle = s => String(s || '').replace(/\s*[([][^)\]]*\b(?:remaster(?:ed)?|deluxe|expanded|anniversary|explicit|single|ep|edit|version|bonus)\b[^)\]]*[)\]]/gi, '')
   .replace(/\s+-\s+(?:single|ep|remaster.*)$/i, '');
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 async function dz(path) {
