@@ -360,9 +360,9 @@ async function showDay(date) {
     if (jokeBtn) jokeBtn.onclick = () => { const p = document.getElementById('emptyJoke'); if (p) p.innerHTML = pickJoke(p.dataset.i); };
     if (teasers.length) $('daySummary').textContent += `${n ? ' · ' : ''}${teasers.length} still to come – guess them from the clues`;
     const nGigs = data.gigs.length + (data.gigTeasers || []).length;
-    if (nGigs) $('daySummary').insertAdjacentHTML('beforeend', `${$('daySummary').textContent ? ' · ' : ''}<button type="button" id="gigToggle" class="linkbtn"></button>`);
+    $('gigToggle').hidden = !nGigs;
     setGigToggle(nGigs);
-    if (n) $('daySummary').insertAdjacentHTML('beforeend', ` · <button type="button" id="coverToggle" class="linkbtn"></button>`);
+    $('coverToggle').hidden = !n;
     setCoverToggle();
   } catch (e) {
     $('daySummary').textContent = e.message;
@@ -682,7 +682,7 @@ function setGigToggle(nGigs) {
   document.body.classList.toggle('nogigs', hide);
   const b = document.getElementById('gigToggle');
   if (!b) return;
-  b.textContent = hide ? `Show gig memories (${nGigs})` : 'Hide gig memories';
+  b.textContent = hide ? `🎟️ Show gigs (${nGigs})` : '🎟️ Hide gigs';
   b.onclick = () => { try { localStorage.setItem('hideGigs', hide ? '0' : '1'); } catch { /* private mode */ } setGigToggle(nGigs); };
 }
 
@@ -693,7 +693,7 @@ function setCoverToggle() {
   document.body.classList.toggle('coversonly', on);
   const b = document.getElementById('coverToggle');
   if (!b) return;
-  b.textContent = on ? 'Show the details' : 'Covers only';
+  b.textContent = on ? '🖼️ Show details' : '🖼️ Covers only';
   b.onclick = () => { try { localStorage.setItem('coversOnly', on ? '0' : '1'); } catch { /* private mode */ } document.querySelectorAll('.card.peek').forEach(c => c.classList.remove('peek')); setCoverToggle(); };
 }
 
