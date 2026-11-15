@@ -79,12 +79,16 @@ async function cachedCall(name, route, handler, request, context) {
 
 // Admin saves that don't change anything visitors see
 const NO_BUMP = ['manage/deezer-fill', 'manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key'];
+// Saves that name releases by id (release-fix, status, release-links): look up which days those releases are on
+const BY_RELEASE_ID = ['manage/release-fix', 'manage/status', 'manage/release-links'];
 // Which days ("MM-DD") a save is about, from dates in its body; null = can't tell, refresh everything
-async function daysIn(request) {
+async function daysIn(request, route) {
   try {
     const t = await request.clone().text();
     if (!t) return null;
-    const body = JSON.parse(t), out = new Set();
+    let body = JSON.parse(t);
+    if (route === 'manage/release-fix' && body && Array.isArray(body.fixes)) body = body.fixes;
+    const out = new Set(), ids = [];
     let unknownItem = false;
     for (const item of [].concat(body)) {
       if (!item || typeof item !== 'object') { unknownItem = true; continue; }
@@ -92,7 +96,16 @@ async function daysIn(request) {
       const m = /^\d{4}-(\d{2})-(\d{2})/.exec(d);
       if (m) out.add(m[1] + '-' + m[2]);
       else if (item.month && item.day) out.add(pad(item.month) + '-' + pad(item.day));
-      else unknownItem = true;
+      // a release named by id: its current day (if the save moves it, the new date above adds the new day too)
+      if (BY_RELEASE_ID.includes(route) && Number.isInteger(item.id)) ids.push(item.id);
+      else if (!m && !(item.month && item.day)) unknownItem = true;
+    }
+    if (ids.length && !unknownItem) {
+      const rows = await query(`SELECT DISTINCT ReleaseMonth AS M, ReleaseDay AS D FROM music.Releases
+                                 WHERE ReleaseId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))`,
+        { ids: [sql.NVarChar(sql.MAX), JSON.stringify(ids)] });
+      if (rows.length < 1) return null;
+      rows.forEach(r => out.add(pad(r.M) + '-' + pad(r.D)));
     }
     return out.size && !unknownItem ? [...out] : null;
   } catch { return null; }
@@ -101,7 +114,7 @@ async function daysIn(request) {
 async function rewarm(days) {
   const t = ukDay(), [y, mm, dd] = t.split('-');
   const urls = ['/api/week', '/api/favourites', '/api/stats', '/api/years', `/api/years/${y}`, '/api/search?all=1', `/api/onthisday?month=${+mm}&day=${+dd}`]
-    .concat((days || []).slice(0, 6).map(d => `/api/onthisday?month=${+d.slice(0, 2)}&day=${+d.slice(3)}`));
+    .concat((days || []).slice(0, 12).map(d => `/api/onthisday?month=${+d.slice(0, 2)}&day=${+d.slice(3)}`));
   const c = new AbortController(); const timer = setTimeout(() => c.abort(), 8000);
   await Promise.allSettled([...new Set(urls)].map(u => fetch('https://www.gigsintoon.co.uk' + u, { signal: c.signal })));
   clearTimeout(timer);
@@ -114,7 +127,7 @@ if (!app.__gigsWrapped) {
     const route = opts.route || name, handler = opts.handler;
     return orig(name, { ...opts, handler: async (request, context) => {
       if (route.startsWith('manage/') && request.method !== 'GET') {
-        const days = await daysIn(request);
+        const days = await daysIn(request, route);
         const res = await handler(request, context);
         if (res && (res.status || 200) < 400 && isOwner(request) && !NO_BUMP.includes(route)) {
           await store.bumpVersion({ days }).catch(err => context.warn('version bump failed: ' + err.message));

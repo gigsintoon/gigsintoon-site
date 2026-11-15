@@ -1,6 +1,8 @@
 name: Midnight pre-warm
 # Just after midnight UK time, load the day's main pages once so they're saved ready-made.
 # After that, visitors are served without waking the SQL database (it pauses after an hour idle).
+# Then every other day of the year too: any day whose saved answer is still current comes straight back from
+# the cache (no database), and any that changed (or turned from 'coming up' to 'past') is rebuilt now, not by a visitor.
 on:
   schedule:
     - cron: '3 0 * * *'    # 00:03 UTC = 00:03 UK in winter
@@ -17,3 +19,7 @@ jobs:
           for u in "/api/onthisday?month=$M&day=$D" /api/week /api/guess /api/favourites /api/stats /api/years "/api/years/$Y" /api/random /api/sitemap; do
             curl -sS -m 90 -o /dev/null -w "$u %{http_code} %{time_total}s\n" "https://www.gigsintoon.co.uk$u" || true
           done
+          # every day of the year (4 at a time); 2024 is a leap year so 29 Feb is included
+          for m in $(seq 1 12); do for d in $(seq 1 $(date -d "2024-$m-01 +1 month -1 day" +%-d)); do echo "$m $d"; done; done |
+            xargs -P 4 -n 2 sh -c 'curl -sS -m 90 -o /dev/null -w "%{http_code}\n" "https://www.gigsintoon.co.uk/api/onthisday?month=$0&day=$1"' |
+            sort | uniq -c
