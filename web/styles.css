@@ -162,3 +162,7 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .emptyfun.xmas{border-color:var(--red);background:linear-gradient(180deg,rgba(229,72,77,.12),var(--panel) 60%)}
 .emptyfun button{margin:6px 4px 0}
 .anav a.unread{color:#e5484d;font-weight:700}
+
+.gig .writeup .more{color:var(--accent);font-weight:600;white-space:nowrap}
+.nogigs #gigs .gig{display:none}
+.linkbtn{background:none;border:0;padding:0;color:var(--accent);font:inherit;cursor:pointer;text-decoration:underline}

@@ -161,13 +161,21 @@ function rememberCard(x) {
   </article>`;
 }
 
+// Day page shows the start of a gig write-up; the full story is on the gig's own page
+const SHORT = 200;
+function shortText(t) {
+  t = String(t);
+  if (t.length <= SHORT) return t;
+  const cut = t.slice(0, SHORT).replace(/\s+\S*$/, '');
+  return cut.replace(/[\s,.;:!-]+$/, '') + '…';
+}
 function gigCard(g) {
   return `<div class="gig" data-gig="${g.GigId}" role="link" tabindex="0">
     ${g.ImageUrl ? `<img src="${esc(g.ImageUrl)}" alt="Gig ticket" loading="lazy">` : ''}
     <div><div class="year">Gig memory · ${esc(g.GigYear)}${g.ImageCount > 1 ? ` · 📷 ${g.ImageCount} photos` : ''}</div>
       <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at <button class="bandlink" data-venue="${esc(g.Venue)}">${esc(g.Venue)}</button>` : ''}
       ${g.TourName ? `<div class="meta">${esc(g.TourName)}</div>` : ''}
-      ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}
+      ${g.WriteUp ? `<div class="writeup">${renderWriteUp(shortText(g.WriteUp))}${g.WriteUp.length > SHORT ? ' <span class="more">Read more ›</span>' : ''}</div>` : ''}
       ${g.PlaylistUrl ? `<p class="gplay"><a href="${esc(g.PlaylistUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🎧 Listen to the setlist on Deezer</a></p>` : ''}</div>
   </div>`;
 }
@@ -351,6 +359,9 @@ async function showDay(date) {
     const jokeBtn = document.getElementById('emptyAnother');
     if (jokeBtn) jokeBtn.onclick = () => { const p = document.getElementById('emptyJoke'); if (p) p.innerHTML = pickJoke(p.dataset.i); };
     if (teasers.length) $('daySummary').textContent += `${n ? ' · ' : ''}${teasers.length} still to come – guess them from the clues`;
+    const nGigs = data.gigs.length + (data.gigTeasers || []).length;
+    if (nGigs) $('daySummary').insertAdjacentHTML('beforeend', `${$('daySummary').textContent ? ' · ' : ''}<button type="button" id="gigToggle" class="linkbtn"></button>`);
+    setGigToggle(nGigs);
   } catch (e) {
     $('daySummary').textContent = e.message;
   }
@@ -644,7 +655,7 @@ document.addEventListener('click', e => {
     return;
   }
   const wu = e.target.closest('.writeup');
-  if (wu && !e.target.closest('[data-band]')) { wu.closest('.card')?.classList.toggle('open'); return; }
+  if (wu && wu.closest('.card') && !e.target.closest('[data-band]')) { wu.closest('.card').classList.toggle('open'); return; }
   const gg = e.target.closest('[data-gig]');
   if (gg && !e.target.closest('[data-band]')) { showGig(gg.dataset.gig); return; }
   const fy = e.target.closest('[data-favyear]');
@@ -659,6 +670,17 @@ document.addEventListener('click', e => {
   if (b) { $('searchResults').hidden = true; $('searchBox').value = ''; showBand(b.dataset.band); return; }
   if (!e.target.closest('.search')) $('searchResults').hidden = true;
 });
+
+// "Hide gigs" for visitors who only want the releases (remembered on this browser)
+function gigsHidden() { try { return localStorage.getItem('hideGigs') === '1'; } catch { return false; } }
+function setGigToggle(nGigs) {
+  const hide = gigsHidden();
+  document.body.classList.toggle('nogigs', hide);
+  const b = document.getElementById('gigToggle');
+  if (!b) return;
+  b.textContent = hide ? `Show gig memories (${nGigs})` : 'Hide gig memories';
+  b.onclick = () => { try { localStorage.setItem('hideGigs', hide ? '0' : '1'); } catch { /* private mode */ } setGigToggle(nGigs); };
+}
 
 // Day navigation
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
