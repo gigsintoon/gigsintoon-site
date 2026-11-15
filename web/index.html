@@ -22,7 +22,7 @@
   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
   <link rel="manifest" href="/site.webmanifest">
   <meta name="theme-color" content="#111214">
-  <link rel="stylesheet" href="/styles.css?v=202611150100">
+  <link rel="stylesheet" href="/styles.css?v=202611151150">
 </head>
 <body>
   <a class="skip" href="#main">Skip to the releases</a>
@@ -63,6 +63,7 @@
         <button id="todayBtn" class="ghost">Today</button>
         <button id="gigToggle" class="ghost" type="button" hidden>🎟️ Hide gigs</button>
         <button id="coverToggle" class="ghost" type="button" hidden>🖼️ Covers only</button>
+        <button id="orderToggle" class="ghost" type="button" hidden>⬆️ Oldest first</button>
         <button id="surpriseBtn" class="ghost" title="Jump to a random release">🎲 Surprise me</button>
       </div>
       <p id="daySummary" class="muted" role="status" aria-live="polite"></p>
@@ -133,7 +134,7 @@
   </div></footer>
   <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
   <script src="/adminbar.js?v=202611142350"></script>
-  <script src="/app.js?v=202611150100"></script>
+  <script src="/app.js?v=202611151150"></script>
   <script src="/protect.js?v=1" defer></script>
 </body>
 </html>

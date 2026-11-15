@@ -341,6 +341,10 @@ async function showDay(date) {
   try {
     const data = await api(`onthisday?month=${m}&day=${d}`);
     handles = data.handles || {};
+    if (oldestFirst()) {   // the API gives newest first; flip by year (bands A–Z within a year stay as they are)
+      data.releases = data.releases.map((r, i) => [r, i]).sort((a, b) => (a[0].ReleaseYear - b[0].ReleaseYear) || (a[1] - b[1])).map(x => x[0]);
+      data.gigs = [...data.gigs].sort((a, b) => String(a.GigDate).localeCompare(String(b.GigDate)));
+    }
     const n = data.releases.length;
     const today = ukToday();
     const viewYear = today.getUTCFullYear();
@@ -364,6 +368,8 @@ async function showDay(date) {
     setGigToggle(nGigs);
     $('coverToggle').hidden = !n;
     setCoverToggle();
+    $('orderToggle').hidden = n + data.gigs.length < 2;
+    setOrderToggle();
   } catch (e) {
     $('daySummary').textContent = e.message;
   }
@@ -685,6 +691,18 @@ function setGigToggle(nGigs) {
   b.textContent = hide ? `🎟️ Show gigs (${nGigs})` : '🎟️ Hide gigs';
   b.setAttribute('aria-pressed', String(hide));
   b.onclick = () => { try { localStorage.setItem('hideGigs', hide ? '0' : '1'); } catch { /* private mode */ } setGigToggle(nGigs); };
+}
+
+// Newest first (default) or oldest first, for the day's releases and gigs
+let orderOld = (() => { try { return localStorage.getItem('oldestFirst') === '1'; } catch { return false; } })();
+function oldestFirst() { return orderOld; }
+function setOrderToggle() {
+  const old = oldestFirst();
+  const b = document.getElementById('orderToggle');
+  if (!b) return;
+  b.textContent = old ? '⬇️ Newest first' : '⬆️ Oldest first';
+  b.setAttribute('aria-label', old ? 'Showing oldest first. Switch to newest first' : 'Showing newest first. Switch to oldest first');
+  b.onclick = () => { orderOld = !old; try { localStorage.setItem('oldestFirst', orderOld ? '1' : '0'); } catch { /* private mode */ } if (current) showDay(current); };
 }
 
 // "Covers only": just the artwork; tap a cover to see its details
