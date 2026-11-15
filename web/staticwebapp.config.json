@@ -5,6 +5,18 @@
       "rewrite": "/api/sitemap"
     },
     {
+      "route": "/gig/*",
+      "rewrite": "/api/share"
+    },
+    {
+      "route": "/day/*",
+      "rewrite": "/api/share"
+    },
+    {
+      "route": "/band/*",
+      "rewrite": "/api/share"
+    },
+    {
       "route": "/.auth/*",
       "allowedRoles": [
         "anonymous",
