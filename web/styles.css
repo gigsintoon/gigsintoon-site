@@ -166,3 +166,7 @@ body.holding > header, body.holding > main, body.holding > footer{display:none}
 .gig .writeup .more{color:var(--accent);font-weight:600;white-space:nowrap}
 .nogigs #gigs .gig{display:none}
 .linkbtn{background:none;border:0;padding:0;color:var(--accent);font:inherit;cursor:pointer;text-decoration:underline}
+.coversonly #releases.grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+.coversonly #releases .card:not(.peek):not(.emptyfun) .body{display:none}
+.coversonly #releases .card .cover{cursor:pointer}
+@media (max-width:640px){.coversonly #releases.grid{grid-template-columns:1fr 1fr;gap:8px}}

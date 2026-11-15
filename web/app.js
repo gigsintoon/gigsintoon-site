@@ -362,6 +362,8 @@ async function showDay(date) {
     const nGigs = data.gigs.length + (data.gigTeasers || []).length;
     if (nGigs) $('daySummary').insertAdjacentHTML('beforeend', `${$('daySummary').textContent ? ' · ' : ''}<button type="button" id="gigToggle" class="linkbtn"></button>`);
     setGigToggle(nGigs);
+    if (n) $('daySummary').insertAdjacentHTML('beforeend', ` · <button type="button" id="coverToggle" class="linkbtn"></button>`);
+    setCoverToggle();
   } catch (e) {
     $('daySummary').textContent = e.message;
   }
@@ -654,6 +656,8 @@ document.addEventListener('click', e => {
     cover.querySelectorAll('.cdtab').forEach(t => t.classList.toggle('on', t === tab));
     return;
   }
+  const pk = document.body.classList.contains('coversonly') && e.target.closest('#releases .card .cover');
+  if (pk) { pk.closest('.card').classList.toggle('peek'); return; }
   const wu = e.target.closest('.writeup');
   if (wu && wu.closest('.card') && !e.target.closest('[data-band]')) { wu.closest('.card').classList.toggle('open'); return; }
   const gg = e.target.closest('[data-gig]');
@@ -680,6 +684,17 @@ function setGigToggle(nGigs) {
   if (!b) return;
   b.textContent = hide ? `Show gig memories (${nGigs})` : 'Hide gig memories';
   b.onclick = () => { try { localStorage.setItem('hideGigs', hide ? '0' : '1'); } catch { /* private mode */ } setGigToggle(nGigs); };
+}
+
+// "Covers only": just the artwork; tap a cover to see its details
+function coversOnly() { try { return localStorage.getItem('coversOnly') === '1'; } catch { return false; } }
+function setCoverToggle() {
+  const on = coversOnly();
+  document.body.classList.toggle('coversonly', on);
+  const b = document.getElementById('coverToggle');
+  if (!b) return;
+  b.textContent = on ? 'Show the details' : 'Covers only';
+  b.onclick = () => { try { localStorage.setItem('coversOnly', on ? '0' : '1'); } catch { /* private mode */ } document.querySelectorAll('.card.peek').forEach(c => c.classList.remove('peek')); setCoverToggle(); };
 }
 
 // Day navigation
