@@ -171,7 +171,7 @@ function shortText(t) {
 }
 function gigCard(g) {
   return `<div class="gig" data-gig="${g.GigId}" role="link" tabindex="0">
-    ${g.ImageUrl ? `<img src="${esc(g.ImageUrl)}" alt="Gig ticket" loading="lazy">` : ''}
+    ${g.ImageUrl ? `<img src="${esc(g.ImageUrl)}" alt="${esc(`From the night: ${g.Bands || 'gig'}${g.Venue ? ' at ' + g.Venue : ''}, ${g.GigYear}`)}" loading="lazy">` : ''}
     <div><div class="year">Gig memory · ${esc(g.GigYear)}${g.ImageCount > 1 ? ` · 📷 ${g.ImageCount} photos` : ''}</div>
       <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at <button class="bandlink" data-venue="${esc(g.Venue)}">${esc(g.Venue)}</button>` : ''}
       ${g.TourName ? `<div class="meta">${esc(g.TourName)}</div>` : ''}
@@ -228,7 +228,7 @@ function openPic(n) {
   const list = window.__gigPics || []; if (!list.length) return;
   let i = n;
   const box = document.createElement('div'); box.className = 'lightbox'; box.tabIndex = -1;
-  const draw = () => { box.innerHTML = `<img src="${esc(list[i])}" alt="">${list.length > 1 ? `<button class="lbp" aria-label="Previous">‹</button><button class="lbn2" aria-label="Next">›</button><span class="lbc">${i + 1} / ${list.length}</span>` : ''}<button class="lbclose" aria-label="Close">✕</button>`; };
+  const draw = () => { box.innerHTML = `<img src="${esc(list[i])}" alt="Photo ${i + 1} of ${list.length}">${list.length > 1 ? `<button class="lbp" aria-label="Previous">‹</button><button class="lbn2" aria-label="Next">›</button><span class="lbc">${i + 1} / ${list.length}</span>` : ''}<button class="lbclose" aria-label="Close">✕</button>`; };
   draw(); document.body.append(box); box.focus();
   const close = () => { box.remove(); document.removeEventListener('keydown', key); };
   const move = s => { i = (i + s + list.length) % list.length; draw(); };
@@ -683,6 +683,7 @@ function setGigToggle(nGigs) {
   const b = document.getElementById('gigToggle');
   if (!b) return;
   b.textContent = hide ? `🎟️ Show gigs (${nGigs})` : '🎟️ Hide gigs';
+  b.setAttribute('aria-pressed', String(hide));
   b.onclick = () => { try { localStorage.setItem('hideGigs', hide ? '0' : '1'); } catch { /* private mode */ } setGigToggle(nGigs); };
 }
 
@@ -694,8 +695,17 @@ function setCoverToggle() {
   const b = document.getElementById('coverToggle');
   if (!b) return;
   b.textContent = on ? '🖼️ Show details' : '🖼️ Covers only';
+  b.setAttribute('aria-pressed', String(on));
+  document.querySelectorAll('#releases .card .cover').forEach(c => { if (on) { c.tabIndex = 0; c.setAttribute('role', 'button'); c.setAttribute('aria-label', 'Show details'); } else { c.removeAttribute('tabindex'); c.removeAttribute('role'); c.removeAttribute('aria-label'); } });
   b.onclick = () => { try { localStorage.setItem('coversOnly', on ? '0' : '1'); } catch { /* private mode */ } document.querySelectorAll('.card.peek').forEach(c => c.classList.remove('peek')); setCoverToggle(); };
 }
+
+// Keyboard: Enter/Space on anything acting as a link or button (gig cards, covers in Covers only)
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Enter' && e.key !== ' ') return;
+  const el = e.target.closest('[role="link"],[role="button"]');
+  if (el && el === e.target && el.tagName !== 'BUTTON' && el.tagName !== 'A') { e.preventDefault(); el.click(); }
+});
 
 // Day navigation
 const addDays = (d, n) => new Date(d.getTime() + n * 86400000);
