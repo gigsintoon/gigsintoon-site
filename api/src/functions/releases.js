@@ -905,7 +905,7 @@ app.http('thumb', {
   handler: async (request) => {
     if (prelaunch(request)) return prelaunchResponse();
     const u = request.query.get('u') || '';
-    if (!u.startsWith(MEDIA_PREFIX) || u.includes('..')) return { status: 400, body: 'bad url' };
+    if (!u.startsWith(MEDIA_PREFIX) || u.split(/[/?#]/).some(p => /^(\.|%2e){2}$/i.test(p))) return { status: 400, body: 'bad url' };
     const size = Math.min(400, Math.max(48, parseInt(request.query.get('s') || '160', 10) || 160));
     try {
       const ck = size + '|' + u;
