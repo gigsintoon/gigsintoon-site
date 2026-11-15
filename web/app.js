@@ -657,7 +657,7 @@ document.addEventListener('click', e => {
     return;
   }
   const pk = document.body.classList.contains('coversonly') && e.target.closest('#releases .card .cover');
-  if (pk) { pk.closest('.card').classList.toggle('peek'); return; }
+  if (pk) { const c = pk.closest('.card'); const was = c.classList.contains('peek'); document.querySelectorAll('#releases .card.peek').forEach(x => x.classList.remove('peek')); c.classList.toggle('peek', !was); return; }
   const wu = e.target.closest('.writeup');
   if (wu && wu.closest('.card') && !e.target.closest('[data-band]')) { wu.closest('.card').classList.toggle('open'); return; }
   const gg = e.target.closest('[data-gig]');
