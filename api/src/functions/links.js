@@ -66,3 +66,73 @@ app.http('adminWriteupReplace', {
     } catch (err) { context.error(err); return json({ ok: false, error: err.message }, 500); }
   }
 });
+
+// POST /api/manage/deezer-fill (owner) { ids:[...], save:false }
+// Looks each release up on Deezer's public search and returns the confident matches; with save:true it stores them
+// (keeping any Apple link already there). Albums/EPs/compilations/live only match a Deezer album of the same name;
+// singles can also fall back to the song itself when Deezer has no separate single.
+const norm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[̀-ͯ]/g, '')
+  .replace(/&/g, 'and').replace(/^the\s+/, '').replace(/[^a-z0-9]/g, '');
+const cleanTitle = s => String(s || '').replace(/\s*[([](?:remaster|deluxe|expanded|anniversary|explicit|single|ep|edit|radio edit|bonus)[^)\]]*[)\]]/gi, '')
+  .replace(/\s+-\s+(?:single|ep|remaster.*)$/i, '');
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+async function dz(path) {
+  for (let i = 0; i < 4; i++) {
+    const r = await fetch('https://api.deezer.com' + path);
+    const j = await r.json().catch(() => ({}));
+    if (j.error && j.error.code === 4) { await sleep(1500); continue; }   // quota: back off
+    return j;
+  }
+  return {};
+}
+async function deezerMatch(rel) {
+  const a = norm(rel.Band), t = norm(cleanTitle(rel.Title));
+  if (!a || !t) return null;
+  const isSingle = rel.ReleaseType === 'Single';
+  const q = encodeURIComponent(`artist:"${rel.Band}" album:"${cleanTitle(rel.Title)}"`);
+  let res = await dz(`/search/album?q=${q}&limit=25`);
+  if (!(res.data || []).length) res = await dz(`/search/album?q=${encodeURIComponent(rel.Band + ' ' + cleanTitle(rel.Title))}&limit=25`);
+  const albums = (res.data || []).filter(x => norm(x.artist && x.artist.name) === a && norm(cleanTitle(x.title)) === t)
+    .filter(x => isSingle ? true : x.record_type !== 'single');
+  albums.sort((x, y) => (isSingle ? (y.record_type === 'single') - (x.record_type === 'single') : (y.nb_tracks || 0) - (x.nb_tracks || 0)));
+  if (albums[0]) return { url: `https://www.deezer.com/album/${albums[0].id}`, how: `album "${albums[0].title}" (${albums[0].record_type}, ${albums[0].nb_tracks || '?'} tracks)` };
+  if (!isSingle) return null;
+  const tq = encodeURIComponent(`artist:"${rel.Band}" track:"${cleanTitle(rel.Title)}"`);
+  const tr = await dz(`/search/track?q=${tq}&limit=25`);
+  const songs = (tr.data || []).filter(x => norm(x.artist && x.artist.name) === a && norm(cleanTitle(x.title_short || x.title)) === t);
+  if (songs[0]) return { url: `https://www.deezer.com/track/${songs[0].id}`, how: `song on "${songs[0].album && songs[0].album.title}"` };
+  return null;
+}
+app.http('adminDeezerFill', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/deezer-fill',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try {
+      const b = await request.json();
+      const ids = (b.ids || []).map(n => parseInt(n, 10)).filter(n => n > 0).slice(0, 40);
+      const rels = await query(`SELECT r.ReleaseId, r.Title, r.ReleaseType, b.Name AS Band, l.AppleUrl, l.DeezerUrl
+          FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId LEFT JOIN music.ReleaseLinks l ON l.ReleaseId = r.ReleaseId
+         WHERE r.ReleaseId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))`, { ids: [sql.NVarChar(sql.MAX), JSON.stringify(ids)] });
+      const found = [], missed = [];
+      for (const r of rels) {
+        if (r.DeezerUrl && !b.force) continue;
+        const m = await deezerMatch(r).catch(() => null);
+        if (m) found.push({ id: r.ReleaseId, band: r.Band, title: r.Title, type: r.ReleaseType, apple: r.AppleUrl, ...m });
+        else missed.push({ id: r.ReleaseId, band: r.Band, title: r.Title, type: r.ReleaseType });
+        await sleep(120);
+      }
+      let saved = 0;
+      if (b.save && found.length) {
+        const rr = await query(`MERGE music.ReleaseLinks AS t
+            USING (SELECT * FROM OPENJSON(@p) WITH (id INT, apple NVARCHAR(400), url NVARCHAR(400))) AS s ON t.ReleaseId = s.id
+            WHEN MATCHED THEN UPDATE SET DeezerUrl = s.url, UpdatedAt = SYSUTCDATETIME()
+            WHEN NOT MATCHED THEN INSERT (ReleaseId, AppleUrl, DeezerUrl) VALUES (s.id, s.apple, s.url);
+            SELECT @@ROWCOUNT AS n;`, { p: [sql.NVarChar(sql.MAX), JSON.stringify(found)] });
+        saved = rr[0] ? rr[0].n : 0;
+      }
+      return json({ ok: true, found, missed, saved });
+    } catch (err) { context.error(err); return json({ ok: false, error: err.message }, 500); }
+  }
+});

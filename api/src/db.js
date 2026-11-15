@@ -78,7 +78,7 @@ async function cachedCall(name, route, handler, request, context) {
 }
 
 // Admin saves that don't change anything visitors see
-const NO_BUMP = ['manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key'];
+const NO_BUMP = ['manage/deezer-fill', 'manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key'];
 // Which days ("MM-DD") a save is about, from dates in its body; null = can't tell, refresh everything
 async function daysIn(request) {
   try {
