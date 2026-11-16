@@ -287,7 +287,7 @@ async function showGig(id) {
       ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}
       ${(g.Videos || []).length ? `<h2>Video${g.Videos.length > 1 ? 's' : ''} from the night</h2><div class="gigvids">${g.Videos.map(v => `<figure><div class="yt"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(v.id)}" title="${esc(v.title || 'Video')}" loading="lazy" allow="accelerometer; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>${v.title ? `<figcaption>${esc(v.title)}</figcaption>` : ''}</figure>`).join('')}</div>` : ''}
       ${sets ? `<h2>Setlist</h2><div class="sets">${sets}</div>` : ''}
-      ${g.SetlistUrl ? `<p class="meta">Setlist from <a href="${esc(g.SetlistUrl)}" target="_blank" rel="noopener">setlist.fm</a></p>` : ''}`;
+      ${g.SetlistUrl && sets ? `<p class="meta">Setlist from <a href="${esc(g.SetlistUrl)}" target="_blank" rel="noopener">setlist.fm</a></p>` : ''}`;
     $('addPics')?.addEventListener('change', e => addGigPhotos(g, [...e.target.files]));
   } catch (e) { $('gigBody').innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
 }
