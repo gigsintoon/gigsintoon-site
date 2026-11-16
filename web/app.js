@@ -244,9 +244,26 @@ document.addEventListener('click', async e => {
   showGig(+new URLSearchParams(location.search).get('gig'));
 });
 
+
+// Page addresses and the browser's Back button. Moving to another page adds a history step (so Back returns
+// to where you were); stepping day to day just updates the address. While a page is drawn because of a
+// load, Back or Forward, the address is only replaced.
+let routing = false;
+function nav(url) {
+  const cur = location.pathname + location.search;
+  if (url === cur) return;
+  const kind = u => (u.match(/^\/\?(\w+)/) || [])[1] || '';
+  if (routing || (kind(url) === 'date' && kind(cur) === 'date')) history.replaceState(history.state, '', url);
+  else history.pushState({ n: ((history.state && history.state.n) || 0) + 1 }, '', url);
+}
+function routeNow() { routing = true; try { route(); } finally { routing = false; } }
+window.addEventListener('popstate', routeNow);
+// In-page "Back": a step back within the site if there is one, otherwise today's page
+function goBack() { if (history.state && history.state.n > 0) history.back(); else { routing = false; showDay(ukToday()); } }
+
 async function showGig(id) {
   showOnly('gigView');
-  history.replaceState(null, '', `/?gig=${id}`);
+  nav(`/?gig=${id}`);
   $('gigBody').innerHTML = '<p class="muted">Loading…</p>';
   try {
     const { gig: g } = await api(`gigs/${id}`);
@@ -337,7 +354,7 @@ async function showDay(date) {
   $('datePick').value = date.toISOString().slice(0, 10);
   $('daySummary').textContent = 'Loading…';
   $('releases').innerHTML = ''; $('gigs').innerHTML = '';
-  history.replaceState(null, '', `/?date=${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
+  nav(`/?date=${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
   try {
     const data = await api(`onthisday?month=${m}&day=${d}`);
     handles = data.handles || {};
@@ -378,7 +395,7 @@ async function showDay(date) {
 async function showBand(id) {
   showOnly('bandView');
   $('bandName').textContent = 'Loading…'; $('bandReleases').innerHTML = ''; $('bandGigs').innerHTML = ''; $('bandHandles').textContent = '';
-  history.pushState(null, '', `/?band=${id}`);
+  nav(`/?band=${id}`);
   try {
     const { band, releases, gigs: bandGigs = [], handles: h } = await api(`bands/${id}`);
     handles = h || {};
@@ -398,7 +415,7 @@ async function showBand(id) {
 // Browse by year
 async function showYear(year) {
   showOnly('yearView');
-  history.replaceState(null, '', year ? `/?year=${year}` : '/?page=years');
+  nav(year ? `/?year=${year}` : '/?page=years');
   try {
     const { years } = await api('years');
     $('yearList').innerHTML = years.map(y => `<button type="button" class="yearbtn${String(y.year) === String(year) ? ' on' : ''}" data-year="${y.year}">${y.year}</button>`).join('');
@@ -420,7 +437,7 @@ async function showYear(year) {
 // Venue page: every gig there
 async function showVenue(name) {
   showOnly('venueView');
-  history.replaceState(null, '', `/?venue=${encodeURIComponent(name)}`);
+  nav(`/?venue=${encodeURIComponent(name)}`);
   $('venueTitle').textContent = name; $('venueBody').innerHTML = '<p class="muted">Loading…</p>';
   try {
     const v = await api(`venue?name=${encodeURIComponent(name)}`);
@@ -433,7 +450,7 @@ async function showVenue(name) {
 // This week: the next seven days at a glance
 async function showWeek() {
   showOnly('weekView');
-  history.replaceState(null, '', '/?page=week');
+  nav('/?page=week');
   $('weekBody').innerHTML = '<p class="muted">Loading…</p>';
   try {
     const { days } = await api('week');
@@ -458,7 +475,7 @@ function bars(rows, label, val = 'N', link) {
 }
 async function showStats() {
   showOnly('statsView');
-  history.replaceState(null, '', '/?page=stats');
+  nav('/?page=stats');
   try {
     const s = await api('stats');
     const t = s.totals;
@@ -488,7 +505,7 @@ async function showStats() {
 const MONTH_NAMES = MONTHS;
 async function showGuess() {
   showOnly('guessView');
-  history.replaceState(null, '', '/?page=guess');
+  nav('/?page=guess');
   try {
     const g = await api('guess');
     const daily = window._guessDaily = !/-W\d/.test(g.week || '');            // weekly until 15 Nov 2026, daily after
@@ -587,7 +604,7 @@ document.addEventListener('click', async e => {
 // Favourite albums by year, plus what's coming up
 async function showFavourites(year) {
   showOnly('favView');
-  history.replaceState(null, '', year ? `/?page=favourites&year=${year}` : '/?page=favourites');
+  nav(year ? `/?page=favourites&year=${year}` : '/?page=favourites');
   $('favBody').innerHTML = '<p class="muted">Loading…</p>';
   try {
     const fav = await api('favourites');
@@ -731,7 +748,7 @@ $('prevDay').onclick = () => showDay(addDays(current, -1));
 $('nextDay').onclick = () => showDay(addDays(current, 1));
 $('todayBtn').onclick = () => showDay(ukToday());
 $('datePick').onchange = () => { const v = $('datePick').value; if (v) showDay(new Date(v + 'T00:00:00Z')); };
-$('backBtn').onclick = () => showDay(current);
+$('backBtn').onclick = goBack;
 $('navDay').onclick = e => { e.preventDefault(); showDay(current); };
 $('navFav').onclick = e => { e.preventDefault(); showFavourites(); };
 // Years page hidden from the menu for now (to-do: streamline it); ?page=years still works
@@ -750,7 +767,7 @@ async function showSurprise() {
     for (let i = 0; i < 10 && r.ReleaseId && seen.includes(r.ReleaseId); i++) r = await api('random');
     if (r.ReleaseId) { seen.push(r.ReleaseId); try { localStorage.setItem('surpriseSeen', JSON.stringify(seen.slice(-1500))); } catch {} }
     if (!r.Month) { $('surpriseBody').innerHTML = '<p class="empty">Nothing to pick from yet.</p>'; return; }
-    history.replaceState(null, '', '/?page=surprise');
+    nav('/?page=surprise');
     const data = await api(`onthisday?month=${r.Month}&day=${r.Day}`);
     handles = data.handles || {};
     const rel = data.releases.find(x => x.ReleaseId === r.ReleaseId);
@@ -771,7 +788,7 @@ function renderAdminBar() {
   $('signIn').hidden = isAdmin;
   if (!isAdmin) return;
   $('adminBar').innerHTML = window.adminBarHtml(`<button id="visitorToggle" type="button" class="ghost">${asVisitor ? 'Viewing as visitor – switch back' : 'View as visitor'}</button>`);
-  $('visitorToggle').onclick = () => { asVisitor = !asVisitor; sessionStorageSet('asVisitor', asVisitor ? '1' : '0'); renderAdminBar(); route(); };
+  $('visitorToggle').onclick = () => { asVisitor = !asVisitor; sessionStorageSet('asVisitor', asVisitor ? '1' : '0'); renderAdminBar(); routeNow(); };
 }
 
 function route() {
@@ -846,5 +863,5 @@ function showCountdown(launchAt, serverNow) {
   if (!launch.live && (!isAdmin || asVisitor)) { countVisit('/countdown'); showCountdown(launch.launchAt, launch.now); return; }
   countVisit();
   renderAdminBar();
-  route();
+  routeNow();
 })();
