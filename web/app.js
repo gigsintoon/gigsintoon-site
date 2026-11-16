@@ -81,11 +81,14 @@ function showWaking(on) {
 }
 
 // Cover, with CD1 / CD2 / CD3 buttons when a single came out on more than one CD
+// (or named buttons, e.g. Cover / Contents, when the pictures are labelled with what they show)
+const KIND_LABEL = { Cover: 'Cover', Back: 'Back', Other: 'Contents' };
+const imageLabel = (r, i) => (r.ImageKinds && (KIND_LABEL[r.ImageKinds[i]] || r.ImageKinds[i])) || `CD${i + 1}`;
 function coverHtml(r) {
   const imgs = (r.Images && r.Images.length ? r.Images : (r.CoverUrl ? [r.CoverUrl] : []));
   if (!imgs.length) return '<div class="cover">No cover yet</div>';
   const tabs = imgs.length > 1
-    ? `<div class="cdtabs">${imgs.map((u, i) => `<button type="button" class="cdtab${i ? '' : ' on'}" data-src="${esc(u)}">CD${i + 1}</button>`).join('')}</div>`
+    ? `<div class="cdtabs">${imgs.map((u, i) => `<button type="button" class="cdtab${i ? '' : ' on'}" data-src="${esc(u)}">${esc(imageLabel(r, i))}</button>`).join('')}</div>`
     : '';
   return `<div class="cover"><img src="${esc(imgs[0])}" alt="Cover of ${esc(r.Title)}" loading="lazy">${tabs}</div>`;
 }

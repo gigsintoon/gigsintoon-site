@@ -68,14 +68,16 @@ const RELEASE_COLUMNS = `
   r.OnSonosPlaylist AS OnSonos, r.Owned, b.NeverPost,
   (SELECT TOP 1 i.PublicUrl FROM music.Images i
      WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS CoverUrl,
-  (SELECT i.PublicUrl AS u FROM music.Images i
+  (SELECT i.PublicUrl AS u, i.Kind AS k FROM music.Images i
      WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId FOR JSON PATH) AS ImagesJson`;
 
 function tidy(rows, all) {
   return rows.map(r => {
-    const images = r.ImagesJson ? JSON.parse(r.ImagesJson).map(x => x.u) : [];
+    const list = r.ImagesJson ? JSON.parse(r.ImagesJson) : [];
     delete r.ImagesJson;
-    r.Images = images;
+    r.Images = list.map(x => x.u);
+    // what each picture is, when it isn't simply another cover (e.g. "Contents" for a box set): labels its button
+    if (list.some(x => x.k && x.k !== 'Cover')) r.ImageKinds = list.map(x => x.k || 'Cover');
     if (!all) { delete r.Status; delete r.OnSonos; delete r.NeverPost; }
     return r;
   });
