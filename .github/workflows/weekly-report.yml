@@ -3,6 +3,8 @@ name: Weekly site report
 # where Claude's scheduled task picks it up and emails it to Michael.
 on:
   schedule:
+    # two tries in case GitHub skips a scheduled run (it did on 16 Nov); the second just refreshes the file
+    - cron: "17 5 * * 1"
     - cron: "17 6 * * 1"
   workflow_dispatch:
 permissions:
@@ -15,7 +17,8 @@ jobs:
         env:
           REPORT_KEY: ${{ secrets.REPORT_KEY }}
         run: |
-          curl -sf -H "x-report-key: $REPORT_KEY" https://www.gigsintoon.co.uk/api/report -o report.json
+          # the database may be asleep: give it time to wake, and retry
+          curl -sf -m 120 --retry 4 --retry-delay 30 --retry-all-errors -H "x-report-key: $REPORT_KEY" https://www.gigsintoon.co.uk/api/report -o report.json
           python3 -c "import json;json.load(open('report.json'))"
       - name: Save to reports branch
         run: |
