@@ -782,8 +782,8 @@ async function showSurprise() {
     $('surpriseDay').onclick = () => showDay(date);
   } catch (e) { $('surpriseBody').innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
 }
-$('surpriseBtn').onclick = () => showSurprise();
-$('surpriseAgain').onclick = () => showSurprise();
+$('surpriseBtn').onclick = () => { countClick('surprise'); showSurprise(); };
+$('surpriseAgain').onclick = () => { countClick('surprise'); showSurprise(); };
 
 // Admin bits in the header: link to the list page, and "view as visitor"
 function renderAdminBar() {
@@ -813,6 +813,10 @@ function route() {
 }
 
 // Count the visit (no cookies, nothing personal – see /privacy)
+// Count a button press (shown on the visitors page; not counted as a page view)
+function countClick(name) {
+  try { fetch('/api/hit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true, body: JSON.stringify({ click: name }) }); } catch { /* ignore */ }
+}
 function countVisit(as) {
   try {
     fetch('/api/hit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,

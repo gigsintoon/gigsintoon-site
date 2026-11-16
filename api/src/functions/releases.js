@@ -343,6 +343,12 @@ app.http('hit', {
     if (/bot|crawl|spider|preview|monitor/i.test(ua)) return { status: 204 };
     try {
       const b = await request.json().catch(() => ({}));
+      // A button press (e.g. "Surprise me") is counted on its own, not as a page view
+      const CLICKS = { surprise: 'Surprise me' };
+      if (b.click) {
+        if (CLICKS[b.click]) await store.incr('clicks', ukDay(), b.click, { Count: 1 }, { Name: CLICKS[b.click] });
+        return { status: 204 };
+      }
       const path = String(b.path || '/').replace(/[?#].*$/, '').slice(0, 200) || '/';
       let ref = '';
       try { ref = b.ref ? new URL(b.ref).hostname.replace(/^www\./, '') : ''; } catch { ref = ''; }
@@ -368,11 +374,17 @@ const lastDays = n => { const out = []; let d = ukDay(); for (let i = 0; i < n; 
 async function visitData(days, top = 20) {
   const ds = lastDays(days);
   const chunks = []; for (let i = 0; i < ds.length; i += 15) chunks.push(ds.slice(i, i + 15));
-  const pv = [], pl = [];
+  const pv = [], pl = [], cl = [];
   for (const c of chunks) {
-    const [a, b] = await Promise.all([Promise.all(c.map(d => store.rows('pageviews', d))), Promise.all(c.map(d => store.rows('pageplaces', d).catch(() => [])))]);
-    a.forEach(x => pv.push(...x)); b.forEach(x => pl.push(...x));
+    const [a, b, k] = await Promise.all([Promise.all(c.map(d => store.rows('pageviews', d))), Promise.all(c.map(d => store.rows('pageplaces', d).catch(() => []))),
+                                         Promise.all(c.map(d => store.rows('clicks', d).catch(() => [])))]);
+    a.forEach(x => pv.push(...x)); b.forEach(x => pl.push(...x)); k.forEach(x => cl.push(...x));
   }
+  // button presses: total per button, plus how many today and in the last 7 days
+  const l7c = new Set(lastDays(7)), todayC = ukDay(), cm = new Map();
+  for (const r of cl) { const e = cm.get(r.rk) || { Name: r.Name || r.rk, Count: 0, Last7: 0, Today: 0 }; const n = Number(r.Count || 0);
+    e.Count += n; if (l7c.has(r.pk)) e.Last7 += n; if (r.pk === todayC) e.Today += n; cm.set(r.rk, e); }
+  const clicks = [...cm.values()].sort((x, y) => y.Count - x.Count);
   const sum = (rows, keyFn) => { const m = new Map(); for (const r of rows) { const k = keyFn(r); if (k === null) continue; m.set(k, (m.get(k) || 0) + Number(r.Views || 0)); } return m; };
   const dayMap = new Map(); for (const r of pv) { const e = dayMap.get(r.pk) || { Views: 0, Mobile: 0 }; e.Views += Number(r.Views || 0); if (r.Device === 'mobile') e.Mobile += Number(r.Views || 0); dayMap.set(r.pk, e); }
   const byDay = [...dayMap.entries()].sort().map(([d, e]) => ({ ViewDate: d + 'T00:00:00.000Z', Views: e.Views, Mobile: e.Mobile }));
@@ -380,7 +392,7 @@ async function visitData(days, top = 20) {
   const l7 = new Set(lastDays(7));
   return { byDay, pages: topList(sum(pv, r => r.Path || '/'), 'Path'), refs: topList(sum(pv, r => r.RefHost ? r.RefHost : null), 'RefHost'),
            places: topList(sum(pl, r => r.Place || r.rk), 'Place'),
-           last7: byDay.filter(r => l7.has(r.ViewDate.slice(0, 10))).map(r => ({ ViewDate: r.ViewDate, Views: r.Views })) };
+           last7: byDay.filter(r => l7.has(r.ViewDate.slice(0, 10))).map(r => ({ ViewDate: r.ViewDate, Views: r.Views })), clicks };
 }
 
 // GET /api/manage/visits?days=30 (owner only) -> page views by day, page and referrer
@@ -392,8 +404,8 @@ app.http('visits', {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
     const days = Math.min(365, Math.max(1, parseInt(request.query.get('days'), 10) || 30));
     try {
-      const { byDay, pages, refs, places, last7 } = await visitData(days);
-      return json({ days, byDay, pages, refs, places, last7 });
+      const { byDay, pages, refs, places, last7, clicks } = await visitData(days);
+      return json({ days, byDay, pages, refs, places, last7, clicks });
     } catch (err) {
       return fail(context, err);
     }
@@ -769,8 +781,8 @@ app.http('report', {
       if (!want || want.length !== got.length || !crypto.timingSafeEqual(want, got)) return json({ error: 'Not allowed.' }, 403);
       let visits = null;
       try {
-        const { byDay, pages, refs } = await visitData(8, 10);
-        visits = { byDay, pages, refs };
+        const { byDay, pages, refs, clicks } = await visitData(8, 10);
+        visits = { byDay, pages, refs, buttonPresses: clicks };
       } catch { visits = { unavailable: 'Visitor table not set up yet (run db/003-visits-and-permissions.sql).' }; }
       const messages = (await query(`SELECT ReceivedAt, Name, Topic, LEFT(Body, 600) AS Body, CASE WHEN Email IS NULL OR Email = '' THEN 0 ELSE 1 END AS HasEmail
           FROM music.Messages WHERE IsRead = 0 AND DeletedAt IS NULL ORDER BY ReceivedAt`))

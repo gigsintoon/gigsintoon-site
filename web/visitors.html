@@ -70,6 +70,7 @@ async function loadVisits(days = 30, attempt = 1) {
            <div><b>${Math.round(mob / total * 100)}%</b><span>on phones</span></div><div><b>${best ? best.Views : 0}</b><span>busiest day${best ? ' · ' + new Date(best.ViewDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span></div></div>
          <h3>Last 7 days</h3>${week7(v.last7 || [])}
          <h3>Every day in this period</h3><div class="vbars">${bars}</div>
+         <h3>Buttons pressed</h3>${(v.clicks || []).length ? '<ol>' + v.clicks.map(c => `<li>${esc(c.Name)} <span class="muted">${c.Count} in this period · ${c.Last7} in the last 7 days · ${c.Today} today</span></li>`).join('') + '</ol>' : '<p class="muted">Nobody has pressed Surprise me yet in this period.</p>'}
          <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div>
            <div><h3>Where visitors are</h3>${places(v.places || [])}<p class="muted small">Worked out from each visitor's clock setting (time zone), so it's the region rather than an exact town.</p></div></div>`
       : '<p>No visits counted in this period yet.</p>';
