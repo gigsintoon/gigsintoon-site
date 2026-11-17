@@ -882,6 +882,15 @@ app.http('guessImage', {
       </svg>`);
       const body = await sharp()({ create: { width: S, height: S, channels: 3, background: '#111214' } })
         .composite([{ input: cover, left: 110, top: 100 }, { input: svg, left: 0, top: 0 }]).jpeg({ quality: 86 }).toBuffer();
+      // Also keep a plain copy in the public media store (social/guess-YYYY-MM-DD.jpg). Instagram fetches the picture
+      // when the post goes out and gave up on this generated address once (17 Nov); a stored file is instant.
+      if (/^\d{4}-\d{2}-\d{2}$/.test(week)) {
+        try {
+          const { BlobServiceClient } = require('@azure/storage-blob');
+          await BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING).getContainerClient('media')
+            .getBlockBlobClient(`social/guess-${week}.jpg`).uploadData(body, { blobHTTPHeaders: { blobContentType: 'image/jpeg', blobCacheControl: 'public, max-age=86400' } });
+        } catch (e) { context.warn('guess image copy failed: ' + e.message); }
+      }
       return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=3600' } };
     } catch (err) { return fail(context, err); }
   }
