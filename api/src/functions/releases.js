@@ -373,13 +373,10 @@ app.http('hit', {
 const lastDays = n => { const out = []; let d = ukDay(); for (let i = 0; i < n; i++) { out.unshift(d); d = dayBefore(d); } return out; };
 async function visitData(days, top = 20) {
   const ds = lastDays(days);
-  const chunks = []; for (let i = 0; i < ds.length; i += 15) chunks.push(ds.slice(i, i + 15));
-  const pv = [], pl = [], cl = [];
-  for (const c of chunks) {
-    const [a, b, k] = await Promise.all([Promise.all(c.map(d => store.rows('pageviews', d))), Promise.all(c.map(d => store.rows('pageplaces', d).catch(() => []))),
-                                         Promise.all(c.map(d => store.rows('clicks', d).catch(() => [])))]);
-    a.forEach(x => pv.push(...x)); b.forEach(x => pl.push(...x)); k.forEach(x => cl.push(...x));
-  }
+  // one query per table for the whole period (dates sort as text), instead of one per day
+  const [pv, pl, cl] = await Promise.all([store.rowsBetween('pageviews', ds[0], ds[ds.length - 1]),
+    store.rowsBetween('pageplaces', ds[0], ds[ds.length - 1]).catch(() => []),
+    store.rowsBetween('clicks', ds[0], ds[ds.length - 1]).catch(() => [])]);
   // button presses: total per button, plus how many today and in the last 7 days
   const l7c = new Set(lastDays(7)), todayC = ukDay(), cm = new Map();
   for (const r of cl) { const e = cm.get(r.rk) || { Name: r.Name || r.rk, Count: 0, Last7: 0, Today: 0 }; const n = Number(r.Count || 0);

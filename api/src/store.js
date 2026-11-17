@@ -69,6 +69,14 @@ async function rows(tableName, pks) {
   }
   return out;
 }
+// All rows whose partition (a "YYYY-MM-DD" date) is between from and to, in one query
+async function rowsBetween(tableName, from, to) {
+  const t = await table(tableName);
+  const out = [];
+  const it = t.listEntities({ queryOptions: { filter: `PartitionKey ge '${key(from)}' and PartitionKey le '${key(to)}'` } });
+  for await (const e of it) out.push({ ...e, pk: unkey(e.partitionKey), rk: unkey(e.rowKey) });
+  return out;
+}
 
 // ---------- Blob cache of ready-made answers ----------
 let containerP;
@@ -126,4 +134,4 @@ async function setCached(k, stamp, body) {
   await (await cacheContainer()).getBlockBlobClient(blobName(k)).upload(s, Buffer.byteLength(s), { blobHTTPHeaders: { blobContentType: 'application/json' } });
 }
 
-module.exports = { versions, incr, get, put, insertIfNew, del, rows, key, unkey, dataVersion, bumpVersion, getCached, setCached };
+module.exports = { versions, incr, get, put, insertIfNew, del, rows, rowsBetween, key, unkey, dataVersion, bumpVersion, getCached, setCached };

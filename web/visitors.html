@@ -58,6 +58,10 @@ async function loadVisits(days = 30, attempt = 1) {
   $('visitBody').textContent = attempt > 1 ? 'Still loading – the database was asleep, waking it up…' : 'Loading…';
   try {
     const r = await fetch('/api/manage/visits?days=' + days);
+    if (r.status === 401 || r.status === 403 || r.redirected) {   // signed out (sessions expire after a while)
+      $('visitBody').innerHTML = 'You\'ve been signed out. <a href="/.auth/login/aad?post_login_redirect_uri=/admin/visitors">Sign in again</a> to see the numbers.';
+      return;
+    }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const v = await r.json();
     const total = v.byDay.reduce((s, d) => s + d.Views, 0), mob = v.byDay.reduce((s, d) => s + d.Mobile, 0);
