@@ -716,12 +716,12 @@ app.http('guess', {
         const started = tk && tk.w === week ? tk : { w: week, t: Date.now(), n: 0, x: true };
         const ok = !b.giveUp && isRight(b.guess, p);
         if (!b.giveUp) { await bumpTally(week, ok); tally = { tries: tally.tries + 1, correct: tally.correct + (ok ? 1 : 0) }; }
-        if (!ok && b.giveUp) return json({ correct: false, gaveUp: true, answer: { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl, month: p.ReleaseMonth, day: p.ReleaseDay }, tally });
+        if (!ok && b.giveUp) return json({ correct: false, gaveUp: true, answer: { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, releaseId: p.ReleaseId, cover: p.CoverUrl, month: p.ReleaseMonth, day: p.ReleaseDay }, tally });
         const n = (started.n || 0) + (b.giveUp ? 0 : 1);
         const extra = ok && !started.x && !started.gaveUp
           ? { win: signTok({ w: week, win: true, n, ms: Date.now() - started.t, at: Date.now(), id: crypto.randomBytes(6).toString('hex') }), guesses: n, ms: Date.now() - started.t }
           : { token: signTok({ ...started, n, gaveUp: started.gaveUp || !!b.giveUp }) };
-        return json({ correct: ok, ...extra, answer: ok ? { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, cover: p.CoverUrl,
+        return json({ correct: ok, ...extra, answer: ok ? { artist: p.Artist, title: p.Title, year: p.ReleaseYear, bandId: p.BandId, releaseId: p.ReleaseId, cover: p.CoverUrl,
                       month: p.ReleaseMonth, day: p.ReleaseDay } : null, tally });
       }
       const last = /-W/.test(week) ? ukWeek(new Date(Date.now() - 7 * 86400000)) : dayBefore(week);

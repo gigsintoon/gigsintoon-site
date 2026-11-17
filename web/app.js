@@ -551,7 +551,8 @@ async function showGuess() {
     BLUR.slice(1).forEach(b => { const p = new Image(); p.src = `/api/teaser/${g.id}?b=${b}`; });
     const reveal = (a, text) => {
       img.src = a.cover; document.querySelector('.gcover').classList.add('revealed');
-      $('guessResult').innerHTML = `${text} <b>${esc(a.artist)} – ${esc(a.title)}</b> (${a.year}). <a href="/?date=${String(a.month).padStart(2, '0')}-${String(a.day).padStart(2, '0')}">See it on its day</a>`;
+      $('guessResult').innerHTML = `${text} <b>${esc(a.artist)} – ${esc(a.title)}</b> (${a.year}). <a href="/?date=${String(a.month).padStart(2, '0')}-${String(a.day).padStart(2, '0')}">See it on its day</a>
+        <p class="discover">🎧 New to you? Why not give it a listen today!</p>${a.releaseId ? `<div class="listen" data-rid="${a.releaseId}" hidden></div>` : ''}`;
       $('guessForm').remove(); $('giveUp').remove();
     };
     $('guessForm').addEventListener('submit', async e => {
