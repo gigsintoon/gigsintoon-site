@@ -14,6 +14,8 @@ jobs:
           M=$(TZ=Europe/London date +%-m); D=$(TZ=Europe/London date +%-d)
           for u in "/" "/api/launch" "/api/week" "/api/onthisday?month=$M&day=$D"; do
             code=$(curl -sS -m 60 -o body.txt -w "%{http_code}" "https://www.gigsintoon.co.uk$u" || echo 000)
+            # one retry after a minute: the sleeping database can take longer to wake than the host waits (a one-off "Backend call failure")
+            if [ "$code" != "200" ]; then echo "$u -> $code (retrying)"; sleep 60; code=$(curl -sS -m 60 -o body.txt -w "%{http_code}" "https://www.gigsintoon.co.uk$u" || echo 000); fi
             echo "$u -> $code"
             if [ "$code" != "200" ]; then fail=1; head -c 300 body.txt; echo; fi
           done
