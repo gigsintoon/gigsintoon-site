@@ -126,6 +126,15 @@ async function getCached(k, stamp) {
   } catch (err) { if (err.statusCode !== 404 && !(err instanceof SyntaxError)) throw err; }
   return undefined;
 }
+// The last answer saved under this key, however old (used when the database can't be reached)
+async function getStale(k) {
+  const m = mem.get(k);
+  if (m) return m.body;
+  try {
+    const e = JSON.parse((await (await cacheContainer()).getBlockBlobClient(blobName(k)).downloadToBuffer()).toString());
+    return e.body;
+  } catch { return undefined; }
+}
 async function setCached(k, stamp, body) {
   const e = { stamp, body, builtAt: new Date().toISOString() };
   mem.set(k, e);
@@ -134,4 +143,4 @@ async function setCached(k, stamp, body) {
   await (await cacheContainer()).getBlockBlobClient(blobName(k)).upload(s, Buffer.byteLength(s), { blobHTTPHeaders: { blobContentType: 'application/json' } });
 }
 
-module.exports = { versions, incr, get, put, insertIfNew, del, rows, rowsBetween, key, unkey, dataVersion, bumpVersion, getCached, setCached };
+module.exports = { versions, incr, get, put, insertIfNew, del, rows, rowsBetween, key, unkey, dataVersion, bumpVersion, getCached, getStale, setCached };

@@ -70,7 +70,13 @@ async function cachedCall(name, route, handler, request, context) {
     const hit = await store.getCached(k, stamp);
     if (hit !== undefined) return { status: 200, jsonBody: hit, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'hit' } };
   } catch (err) { context.warn('cache read failed: ' + err.message); }
-  const res = await handler(request, context);
+  let res;
+  try { res = await handler(request, context); } catch (err) { res = { status: 500 }; context.warn('handler failed: ' + err.message); }
+  // Database asleep or unavailable: give visitors the last good answer rather than an error
+  if (k && (!res || (res.status || 200) >= 500)) {
+    const old = await store.getStale(k).catch(() => undefined);
+    if (old !== undefined) return { status: 200, jsonBody: old, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'stale' } };
+  }
   if (stamp && res && (res.status || 200) === 200 && res.jsonBody !== undefined) {
     await store.setCached(k, stamp, res.jsonBody).catch(err => context.warn('cache write failed: ' + err.message));
     res.headers = { ...(res.headers || {}), 'Cache-Control': 'public, max-age=300', 'X-Cache': 'miss' };

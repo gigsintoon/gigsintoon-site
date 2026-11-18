@@ -441,10 +441,15 @@ app.http('randomRelease', {
       const stamp = (await store.dataVersion()) + '|' + ukDay();
       let pool = await store.getCached('randompool', stamp);
       if (!pool) {
-        pool = (await query(`SELECT r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day
-             FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
-            WHERE ${VISIBLE} AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)`)).map(r => [r.ReleaseId, r.Month, r.Day]);
-        await store.setCached('randompool', stamp, pool).catch(() => {});
+        try {
+          pool = (await query(`SELECT r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day
+               FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
+              WHERE ${VISIBLE} AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)`)).map(r => [r.ReleaseId, r.Month, r.Day]);
+          await store.setCached('randompool', stamp, pool).catch(() => {});
+        } catch (err) {
+          pool = await store.getStale('randompool');   // database unavailable: yesterday's list is fine
+          if (!pool) throw err;
+        }
       }
       const pick = pool[Math.floor(Math.random() * pool.length)];
       return json(pick ? { ReleaseId: pick[0], Month: pick[1], Day: pick[2] } : {}, 200);
