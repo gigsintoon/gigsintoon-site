@@ -5,8 +5,14 @@ name: Midnight pre-warm
 # the cache (no database), and any that changed (or turned from 'coming up' to 'past') is rebuilt now, not by a visitor.
 on:
   schedule:
-    - cron: '3 0 * * *'    # 00:03 UTC = 00:03 UK in winter
-    - cron: '3 23 * * *'   # 23:03 UTC = 00:03 UK in summer (BST)
+    # GitHub often starts scheduled runs late (17 & 18 Nov: over an hour), so try several times after midnight.
+    # Extra runs are cheap: anything already ready comes straight from the cache without touching the database.
+    - cron: '3 0 * * *'    # 00:03 UK in winter (23:03 UTC = 00:03 in summer)
+    - cron: '33 0 * * *'
+    - cron: '3 1 * * *'
+    - cron: '33 2 * * *'
+    - cron: '3 23 * * *'
+    - cron: '33 23 * * *'
   workflow_dispatch:
 jobs:
   warm:
@@ -14,7 +20,8 @@ jobs:
     steps:
       - run: |
           H=$(TZ=Europe/London date +%H)
-          if [ "$H" != "00" ] && [ "${{ github.event_name }}" = "schedule" ]; then echo "Not midnight in the UK ($H) - skipping"; exit 0; fi
+          # only in the small hours (UK time): a late-running job still counts; a summer-time job firing in winter (or the reverse) at 23:xx is skipped
+          case "$H" in 00|01|02|03|04|05) ;; *) if [ "${{ github.event_name }}" = "schedule" ]; then echo "Not the small hours in the UK ($H) - skipping"; exit 0; fi ;; esac
           M=$(TZ=Europe/London date +%-m); D=$(TZ=Europe/London date +%-d); Y=$(TZ=Europe/London date +%Y)
           for u in "/api/onthisday?month=$M&day=$D" /api/week /api/guess /api/favourites /api/stats /api/years "/api/years/$Y" /api/random /api/sitemap; do
             curl -sS -m 90 -o /dev/null -w "$u %{http_code} %{time_total}s\n" "https://www.gigsintoon.co.uk$u" || true
