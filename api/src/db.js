@@ -39,7 +39,8 @@ function fail(context, err) {
 // Micky (owner) always gets live answers. Nothing here changes what a visitor sees - only where it comes from.
 const { app } = require('@azure/functions');
 const store = require('./store');
-const { isOwner } = require('./auth');
+const { isOwner, isRunner, markRunner } = require('./auth');
+const crypto = require('crypto');
 
 const ukDay = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(d);
 const pad = n => String(n).padStart(2, '0');
@@ -59,7 +60,8 @@ const cacheKey = (route, r) => route.replace(/[{}:?]/g, '') + '?' + [...Object.e
 
 async function cachedCall(name, route, handler, request, context) {
   const stampFn = STAMPS[route] || (DAILY.includes(route) ? () => ukDay() : ON_CHANGE.includes(route) ? () => 'c' : null);
-  if (!stampFn || request.method !== 'GET' || isOwner(request)) return handler(request, context);
+  if (!stampFn || request.method !== 'GET') return handler(request, context);
+  const runner = isRunner(request);
   let k, stamp;
   try {
     k = cacheKey(route, request);
@@ -67,36 +69,58 @@ async function cachedCall(name, route, handler, request, context) {
     // a day's page only depends on its own day; everything else on the list version
     const part = route === 'onthisday' ? (v.d[`${pad(request.query.get('month'))}-${pad(request.query.get('day'))}`] || '0') : v.l;
     stamp = v.g + '|' + part + '|' + stampFn(request);
-    const hit = await store.getCached(k, stamp);
-    if (hit !== undefined) return { status: 200, jsonBody: hit, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'hit' } };
   } catch (err) { context.warn('cache read failed: ' + err.message); }
-  let res;
-  // If there's an older answer to fall back on, don't keep the visitor waiting while a paused database
-  // wakes up (that takes about a minute): give them the older answer after 15s. The fresh answer is
-  // still worked out and saved for the next visitor.
-  const old = k ? await store.getStale(k).catch(() => undefined) : undefined;
-  const work = (async () => {
-    let r;
-    try { r = await handler(request, context); } catch (err) { r = { status: 500 }; context.warn('handler failed: ' + err.message); }
-    if (stamp && r && (r.status || 200) === 200 && r.jsonBody !== undefined) await store.setCached(k, stamp, r.jsonBody).catch(() => {});
-    return r;
-  })();
-  if (old !== undefined) {
-    res = await Promise.race([work, new Promise(ok => setTimeout(() => ok(null), 15000))]);
-    if (!res) return { status: 200, jsonBody: old, headers: { 'Cache-Control': 'public, max-age=60', 'X-Cache': 'stale' } };
-  } else res = await work;
-  // Database asleep or unavailable: give visitors the last good answer rather than an error
-  if (k && (!res || (res.status || 200) >= 500)) {
-    if (old !== undefined) return { status: 200, jsonBody: old, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'stale' } };
+  // The owner browsing the public pages sees the same ready-made answers as visitors (from the last overnight run).
+  if (isOwner(request) && !runner) {
+    const have = k ? await store.getStale(k).catch(() => undefined) : undefined;
+    if (have !== undefined) return { status: 200, jsonBody: have, headers: { 'Cache-Control': 'no-store', 'X-Cache': 'owner-saved' } };
+    return handler(request, context);     // nothing saved yet: live (this is the only case that wakes the database)
   }
+  if (k && stamp) {
+    const hit = await store.getCached(k, stamp).catch(() => undefined);
+    if (hit !== undefined) return { status: 200, jsonBody: hit, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'hit' } };
+    // Out of date: visitors get the last saved answer; only the overnight run rebuilds it (so the database wakes once a day)
+    if (!runner) {
+      const old = await store.getStale(k).catch(() => undefined);
+      if (old !== undefined) return { status: 200, jsonBody: old, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'saved' } };
+    }
+  }
+  // Never asked for before (or the overnight run): work it out and save it
+  const res = await handler(request, context);
   if (stamp && res && (res.status || 200) === 200 && res.jsonBody !== undefined) {
+    await store.setCached(k, stamp, res.jsonBody, pathOf(request)).catch(err => context.warn('cache write failed: ' + err.message));
     res.headers = { ...(res.headers || {}), 'Cache-Control': 'public, max-age=300', 'X-Cache': 'miss' };
   }
   return res;
 }
+const pathOf = request => { try { const u = new URL(request.url); return u.pathname + u.search; } catch { return null; } };
+
+// The overnight run proves who it is with the weekly-report key (only its hash is stored)
+let keyHash = null;
+async function checkRunner(request) {
+  const got = request.headers.get('x-report-key');
+  if (!got) return false;
+  if (!keyHash) keyHash = await store.getStale('runner-keyhash').catch(() => undefined) || null;
+  if (!keyHash) {
+    const row = await query(`SELECT Value FROM music.Settings WHERE Name = N'ReportKeyHash'`);
+    keyHash = row[0] ? row[0].Value : null;
+    if (keyHash) await store.setCached('runner-keyhash', 'k', keyHash).catch(() => {});
+  }
+  if (!keyHash) return false;
+  const want = Buffer.from(keyHash, 'hex'), h = crypto.createHash('sha256').update(got).digest();
+  return want.length === h.length && crypto.timingSafeEqual(want, h);
+}
+function forgetRunnerKey() { keyHash = null; return store.setCached('runner-keyhash', 'k', '').catch(() => {}); }
+
+// Admin pages the owner reads (lists, to-dos, messages...): shown as they were at the last overnight run
+const ADMIN_SNAPSHOT = ['manage/month', 'manage/todos', 'manage/messages', 'manage/bands', 'manage/site-info',
+  'manage/remembering', 'manage/site-additions', 'manage/status-overrides', 'manage/import'];
+// Admin saves that never touch the database: done straight away
+const IMMEDIATE = ['manage/upload', 'manage/upload-link', 'manage/media-copy', 'manage/rebuild', 'manage/report-key',
+  'manage/visits', 'manage/media', 'manage/unread', 'manage/queue', 'manage/nightly'];
 
 // Admin saves that don't change anything visitors see
-const NO_BUMP = ['manage/deezer-fill', 'manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key'];
+const NO_BUMP = ['manage/deezer-fill', 'manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key', 'manage/queue', 'manage/nightly'];
 // Saves that name releases by id (release-fix, status, release-links): look up which days those releases are on
 const BY_RELEASE_ID = ['manage/release-fix', 'manage/status', 'manage/release-links'];
 // Which days ("MM-DD") a save is about, from dates in its body; null = can't tell, refresh everything
@@ -128,29 +152,42 @@ async function daysIn(request, route) {
     return out.size && !unknownItem ? [...out] : null;
   } catch { return null; }
 }
-// After a save the database is awake anyway: refresh the busiest ready-made pages straight away
-async function rewarm(days) {
-  const t = ukDay(), [y, mm, dd] = t.split('-');
-  const urls = ['/api/week', '/api/favourites', '/api/stats', '/api/years', `/api/years/${y}`, '/api/search?all=1', `/api/onthisday?month=${+mm}&day=${+dd}`]
-    .concat((days || []).slice(0, 12).map(d => `/api/onthisday?month=${+d.slice(0, 2)}&day=${+d.slice(3)}`));
-  const c = new AbortController(); const timer = setTimeout(() => c.abort(), 8000);
-  await Promise.allSettled([...new Set(urls)].map(u => fetch('https://www.gigsintoon.co.uk' + u, { signal: c.signal })));
-  clearTimeout(timer);
-}
 
-// Wrap every function as it's registered: public GETs go through the cache; any successful admin save bumps the data version.
+// Wrap every function as it's registered:
+//  - the overnight run (report key) is recognised and acts as the owner
+//  - public GETs go through the ready-made answers
+//  - owner admin reads come from the last overnight run; owner saves wait in a queue for the overnight run
+//    (add ?now=1 to save straight away, which wakes the database)
 if (!app.__gigsWrapped) {
   const orig = app.http.bind(app);
   app.http = (name, opts) => {
     const route = opts.route || name, handler = opts.handler;
     return orig(name, { ...opts, handler: async (request, context) => {
+      if (request.headers.get('x-report-key') && await checkRunner(request).catch(() => false)) markRunner(request, route.startsWith('manage/'));
+      const runner = isRunner(request);
       if (route.startsWith('manage/') && request.method !== 'GET') {
+        if (isOwner(request) && !runner && !IMMEDIATE.includes(route) && request.query.get('now') !== '1') {
+          const body = await request.text();
+          const u = new URL(request.url);
+          await store.queueAdd({ route, method: request.method, path: u.pathname + u.search, body });
+          return { status: 202, jsonBody: { ok: true, queued: true, note: 'Saved - it goes into the database in the overnight run (add ?now=1 to do it straight away).' } };
+        }
         const days = await daysIn(request, route);
         const res = await handler(request, context);
+        if (route === 'manage/report-key') await forgetRunnerKey();
         if (res && (res.status || 200) < 400 && isOwner(request) && !NO_BUMP.includes(route)) {
           await store.bumpVersion({ days }).catch(err => context.warn('version bump failed: ' + err.message));
-          await rewarm(days);
         }
+        return res;
+      }
+      if (route.startsWith('manage/') && request.method === 'GET' && ADMIN_SNAPSHOT.includes(route) && isOwner(request)) {
+        const k = 'admin-' + cacheKey(route, request);
+        if (!runner && request.query.get('now') !== '1') {
+          const have = await store.getStale(k).catch(() => undefined);
+          if (have !== undefined) return { status: 200, jsonBody: have, headers: { 'Cache-Control': 'no-store', 'X-Cache': 'last-overnight-run' } };
+        }
+        const res = await handler(request, context);
+        if (res && (res.status || 200) === 200 && res.jsonBody !== undefined) await store.setCached(k, 's', res.jsonBody, pathOf(request)).catch(() => {});
         return res;
       }
       return cachedCall(name, route, handler, request, context);

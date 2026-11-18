@@ -9,7 +9,15 @@ function principal(request) {
   }
 }
 
+// The overnight run (GitHub Action with the report key) acts as the owner. db.js checks the key and marks the request.
+// On admin routes it acts as the owner; on public routes it only gets to rebuild the ready-made answers
+// (it sees exactly what a visitor sees).
+const runners = new WeakSet(), rebuilders = new WeakSet();
+function markRunner(request, asOwner) { (asOwner ? runners : rebuilders).add(request); }
+function isRunner(request) { return runners.has(request) || rebuilders.has(request); }
+
 function isOwner(request) {
+  if (runners.has(request)) return true;
   const p = principal(request);
   return !!p && (p.userRoles || []).includes('owner');
 }
@@ -30,4 +38,4 @@ function prelaunchResponse() {
            headers: { 'Cache-Control': 'no-store' } };
 }
 
-module.exports = { principal, isOwner, seesAll, LAUNCH_AT, isLive, prelaunch, prelaunchResponse };
+module.exports = { principal, isOwner, isRunner, markRunner, seesAll, LAUNCH_AT, isLive, prelaunch, prelaunchResponse };

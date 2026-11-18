@@ -135,12 +135,48 @@ async function getStale(k) {
     return e.body;
   } catch { return undefined; }
 }
-async function setCached(k, stamp, body) {
+async function setCached(k, stamp, body, url = null) {
   const e = { stamp, body, builtAt: new Date().toISOString() };
   mem.set(k, e);
   if (mem.size > 800) mem.delete(mem.keys().next().value);
   const s = JSON.stringify(e);
-  await (await cacheContainer()).getBlockBlobClient(blobName(k)).upload(s, Buffer.byteLength(s), { blobHTTPHeaders: { blobContentType: 'application/json' } });
+  await (await cacheContainer()).getBlockBlobClient(blobName(k)).upload(s, Buffer.byteLength(s), {
+    blobHTTPHeaders: { blobContentType: 'application/json' },
+    // the address it answers, so the overnight run can rebuild every saved answer
+    metadata: url ? { url: Buffer.from(url).toString('base64url') } : undefined });
+}
+// Every address that has a saved answer (for the overnight rebuild)
+async function cachedUrls() {
+  const out = [];
+  for await (const b of (await cacheContainer()).listBlobsFlat({ prefix: 'api/', includeMetadata: true })) {
+    if (b.metadata && b.metadata.url) { try { out.push(Buffer.from(b.metadata.url, 'base64url').toString()); } catch { } }
+  }
+  return out;
 }
 
-module.exports = { versions, incr, get, put, insertIfNew, del, rows, rowsBetween, key, unkey, dataVersion, bumpVersion, getCached, getStale, setCached };
+// ---------- Changes waiting for the overnight run ----------
+// Admin saves (and contact messages) made during the day are kept here and applied to the database
+// in one go overnight, so the database only wakes once a day.
+async function queueAdd(item) {
+  const name = `queue/${new Date().toISOString().replace(/[-:.]/g, '')}-${Math.random().toString(36).slice(2, 8)}.json`;
+  const s = JSON.stringify({ ...item, queuedAt: new Date().toISOString() });
+  await (await cacheContainer()).getBlockBlobClient(name).upload(s, Buffer.byteLength(s), { blobHTTPHeaders: { blobContentType: 'application/json' } });
+  return name;
+}
+async function queueList() {
+  const c = await cacheContainer(), out = [];
+  for await (const b of c.listBlobsFlat({ prefix: 'queue/' })) out.push(b.name);
+  out.sort();
+  const items = [];
+  for (const name of out) {
+    try { items.push({ name, ...JSON.parse((await c.getBlockBlobClient(name).downloadToBuffer()).toString()) }); } catch { }
+  }
+  return items;
+}
+async function queueDone(name) {
+  if (!/^queue\/[\w.-]+\.json$/.test(name)) return false;
+  await (await cacheContainer()).getBlockBlobClient(name).deleteIfExists();
+  return true;
+}
+
+module.exports = { versions, incr, get, put, insertIfNew, del, rows, rowsBetween, key, unkey, dataVersion, bumpVersion, getCached, getStale, setCached, cachedUrls, queueAdd, queueList, queueDone };

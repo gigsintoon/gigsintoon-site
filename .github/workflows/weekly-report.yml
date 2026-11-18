@@ -2,10 +2,8 @@ name: Weekly site report
 # Every Monday morning: fetch the site's weekly summary and save it on the "reports" branch,
 # where Claude's scheduled task picks it up and emails it to Michael.
 on:
-  schedule:
-    # two tries in case GitHub skips a scheduled run (it did on 16 Nov); the second just refreshes the file
-    - cron: "17 5 * * 1"
-    - cron: "17 6 * * 1"
+  # The Monday report is now fetched by the Nightly run (while the database is awake anyway).
+  # This one is only for running by hand.
   workflow_dispatch:
 permissions:
   contents: write

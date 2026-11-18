@@ -1,7 +1,7 @@
 const { app } = require('@azure/functions');
 const crypto = require('crypto');
 const { sql, query, json, fail } = require('../db');
-const { isOwner } = require('../auth');
+const { isOwner, isRunner } = require('../auth');
 const store = require('../store');
 // Unread-message count for the admin bar, kept in Table Storage so showing it never wakes the database
 const setUnread = async () => { const r = await query(`SELECT COUNT(*) AS n FROM music.Messages WHERE IsRead = 0 AND DeletedAt IS NULL`); await store.put('meta', 'messages', 'unread', { N: r[0].n }); };
@@ -39,8 +39,17 @@ app.http('contact', {
       if (message.length < 5) return json({ ok: false, error: 'Please write a message.' }, 400);
       if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return json({ ok: false, error: 'That email address doesn’t look right.' }, 400);
       if ((message.match(/https?:\/\//g) || []).length > 3) return json({ ok: false, error: 'Please include fewer links.' }, 400);
-      if (await tooMany(request)) return json({ ok: false, error: 'Thanks – please try again a bit later.' }, 429);
-      const at = new Date();
+      if (!isRunner(request) && await tooMany(request)) return json({ ok: false, error: 'Thanks – please try again a bit later.' }, 429);
+      // During the day the message is kept safely in storage and goes into the database in the overnight run
+      // (so a message doesn't wake the database). The unread count still goes up straight away.
+      if (!isRunner(request)) {
+        await store.queueAdd({ route: 'contact', method: 'POST', path: '/api/contact',
+          body: JSON.stringify({ name, email, topic, message, receivedAt: new Date().toISOString() }) });
+        const e = await store.get('meta', 'messages', 'unread').catch(() => null);
+        await store.put('meta', 'messages', 'unread', { N: (e ? Number(e.N) || 0 : 0) + 1 }).catch(() => {});
+        return json({ ok: true });
+      }
+      const at = b.receivedAt && !isNaN(Date.parse(b.receivedAt)) ? new Date(b.receivedAt) : new Date();
       const id = at.toISOString().replace(/[-:.TZ]/g, '').slice(0, 14) + '-' + crypto.randomBytes(3).toString('hex');
       await query(`INSERT music.Messages (MessageId, ReceivedAt, Name, Email, Topic, Body) VALUES (@id, @at, @n, @e, @t, @b)`, {
         id: [sql.NVarChar(40), id], at: [sql.DateTime2, at], n: [sql.NVarChar(100), name || null], e: [sql.NVarChar(200), email || null],

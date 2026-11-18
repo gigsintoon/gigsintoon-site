@@ -1,0 +1,46 @@
+name: Nightly run
+# The site's one database run each day, just after midnight UK time:
+# applies the admin saves and contact messages queued during the day, rebuilds every ready-made answer
+# (visitors and Michael are served these all day without waking the database), and on Mondays fetches the weekly report.
+on:
+  schedule:
+    # GitHub often starts scheduled runs late (17 & 18 Nov: over an hour), so try several times after midnight.
+    # Only the first run each day touches the database; later ones find everything ready and stop.
+    - cron: '3 0 * * *'    # 00:03 UK in winter (23:03 UTC = 00:03 in summer)
+    - cron: '33 0 * * *'
+    - cron: '3 1 * * *'
+    - cron: '33 2 * * *'
+    - cron: '3 23 * * *'
+    - cron: '33 23 * * *'
+  workflow_dispatch:
+    inputs:
+      report:
+        description: 'Also fetch the weekly report (1 = yes)'
+        default: '0'
+permissions:
+  contents: write
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: .github/scripts
+      - name: Apply the day's changes and rebuild the site's answers
+        env:
+          REPORT_KEY: ${{ secrets.REPORT_KEY }}
+          EVENT: ${{ github.event_name }}
+          REPORT: ${{ github.event.inputs.report }}
+        run: python3 .github/scripts/nightly.py
+      - name: Save the weekly report
+        if: always() && hashFiles('report.json') != ''
+        run: |
+          d=$(date -u +%F)
+          git init -q out && cd out
+          git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git"
+          git fetch -q --depth 1 origin reports || true
+          git checkout -q -B reports $( git rev-parse -q --verify FETCH_HEAD >/dev/null && echo FETCH_HEAD )
+          mkdir -p reports && cp ../report.json "reports/$d.json" && cp ../report.json reports/latest.json
+          git -c user.name="gigsintoon-bot" -c user.email="bot@gigsintoon.co.uk" add reports
+          git -c user.name="gigsintoon-bot" -c user.email="bot@gigsintoon.co.uk" commit -qm "Report $d" || true
+          git push -q origin reports

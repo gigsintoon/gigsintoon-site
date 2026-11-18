@@ -2,7 +2,7 @@ const { app } = require('@azure/functions');
 const { sql, query, json, fail } = require('../db');
 const store = require('../store');
 const { buildHandleMap, handlesFor, norm } = require('../handles');
-const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
+const { isOwner, isRunner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
 const crypto = require('crypto');
 let sharpLib = null;
 function sharp() { if (!sharpLib) sharpLib = require('sharp'); return sharpLib; }
@@ -279,13 +279,16 @@ app.http('favourites', {
 
 // The picture behind a teaser, looked up once and kept until something is saved (so blurred covers
 // on day pages and in Guess the Cover don't wake the database for every visitor).
+// The overnight run saves every cover/ticket address in one list (teasermap); anything newer is looked up once.
 async function teaserUrl(kind, id, sqlText) {
-  const v = await store.versions().catch(() => null);
-  const k = `teaserurl-${kind}-${id}`, stamp = v ? v.g + '|' + v.l : null;
-  if (stamp) { const hit = await store.getCached(k, stamp).catch(() => undefined); if (hit !== undefined) return hit || null; }
+  const map = await store.getStale('teasermap').catch(() => undefined);
+  if (map && map[kind] && map[kind][id]) return map[kind][id];
+  const k = `teaserurl-${kind}-${id}`;
+  const have = await store.getStale(k).catch(() => undefined);
+  if (have !== undefined) return have || null;
   const rows = await query(sqlText, { id: [sql.Int, id] });
   const url = rows.length ? rows[0].PublicUrl : '';
-  if (stamp) await store.setCached(k, stamp, url).catch(() => {});
+  await store.setCached(k, 's', url).catch(() => {});
   return url || null;
 }
 
@@ -440,8 +443,8 @@ app.http('randomRelease', {
       // The list of candidates is kept ready-made for the day, so "Surprise me" doesn't wake the database.
       const stamp = (await store.dataVersion()) + '|' + ukDay();
       let pool = await store.getCached('randompool', stamp);
-      // yesterday's list is fine for a random pick; it's rebuilt by the overnight warm-up (00:00-05:59 UK)
-      if (!pool && ukHour() >= 6) pool = await store.getStale('randompool');
+      // yesterday's list is fine for a random pick; only the overnight run rebuilds it
+      if (!pool && !isRunner(request)) pool = await store.getStale('randompool');
       if (!pool) {
         try {
           pool = (await query(`SELECT r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day
