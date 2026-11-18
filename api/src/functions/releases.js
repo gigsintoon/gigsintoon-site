@@ -440,6 +440,8 @@ app.http('randomRelease', {
       // The list of candidates is kept ready-made for the day, so "Surprise me" doesn't wake the database.
       const stamp = (await store.dataVersion()) + '|' + ukDay();
       let pool = await store.getCached('randompool', stamp);
+      // yesterday's list is fine for a random pick; it's rebuilt by the overnight warm-up (00:00-05:59 UK)
+      if (!pool && ukHour() >= 6) pool = await store.getStale('randompool');
       if (!pool) {
         try {
           pool = (await query(`SELECT r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day

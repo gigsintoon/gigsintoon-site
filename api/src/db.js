@@ -71,14 +71,25 @@ async function cachedCall(name, route, handler, request, context) {
     if (hit !== undefined) return { status: 200, jsonBody: hit, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'hit' } };
   } catch (err) { context.warn('cache read failed: ' + err.message); }
   let res;
-  try { res = await handler(request, context); } catch (err) { res = { status: 500 }; context.warn('handler failed: ' + err.message); }
+  // If there's an older answer to fall back on, don't keep the visitor waiting while a paused database
+  // wakes up (that takes about a minute): give them the older answer after 15s. The fresh answer is
+  // still worked out and saved for the next visitor.
+  const old = k ? await store.getStale(k).catch(() => undefined) : undefined;
+  const work = (async () => {
+    let r;
+    try { r = await handler(request, context); } catch (err) { r = { status: 500 }; context.warn('handler failed: ' + err.message); }
+    if (stamp && r && (r.status || 200) === 200 && r.jsonBody !== undefined) await store.setCached(k, stamp, r.jsonBody).catch(() => {});
+    return r;
+  })();
+  if (old !== undefined) {
+    res = await Promise.race([work, new Promise(ok => setTimeout(() => ok(null), 15000))]);
+    if (!res) return { status: 200, jsonBody: old, headers: { 'Cache-Control': 'public, max-age=60', 'X-Cache': 'stale' } };
+  } else res = await work;
   // Database asleep or unavailable: give visitors the last good answer rather than an error
   if (k && (!res || (res.status || 200) >= 500)) {
-    const old = await store.getStale(k).catch(() => undefined);
     if (old !== undefined) return { status: 200, jsonBody: old, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'stale' } };
   }
   if (stamp && res && (res.status || 200) === 200 && res.jsonBody !== undefined) {
-    await store.setCached(k, stamp, res.jsonBody).catch(err => context.warn('cache write failed: ' + err.message));
     res.headers = { ...(res.headers || {}), 'Cache-Control': 'public, max-age=300', 'X-Cache': 'miss' };
   }
   return res;
