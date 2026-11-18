@@ -8,7 +8,7 @@
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   bar.innerHTML = `<a class="brand" href="/">Gigs in <span>toon</span></a>
     <nav class="nav">${links.map(([t, h]) => `<a href="${h}"${h === here ? ' class="on" aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
-    <form class="search" role="search" id="tbSearch">
+    <form class="search" role="search" id="tbSearch" hidden style="display:none">
       <input type="search" placeholder="Search bands…" autocomplete="off" aria-label="Search bands">
       <div class="results" hidden></div>
     </form>
