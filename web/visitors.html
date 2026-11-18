@@ -79,6 +79,12 @@ async function loadVisits(days = 30, attempt = 1) {
            <div><h3>Where visitors are</h3>${places(v.places || [])}<p class="muted small">Worked out from each visitor's clock setting (time zone), so it's the region rather than an exact town.</p></div></div>`
       : '<p>No visits counted in this period yet.</p>';
   } catch {
+    // Signed out? The site then sends the request off to the Microsoft sign-in page, which shows up here as a failed request.
+    const me = await fetch('/api/me', { cache: 'no-store' }).then(x => x.json()).catch(() => null);
+    if (me && !me.owner) {
+      $('visitBody').innerHTML = 'You\'ve been signed out (sign-ins expire after a while). <a href="/.auth/login/aad?post_login_redirect_uri=/admin/visitors">Sign in again</a> to see the numbers.';
+      return;
+    }
     if (attempt < 3) return setTimeout(() => loadVisits(days, attempt + 1), 3000);   // first request after a quiet spell can time out
     $('visitBody').innerHTML = 'Couldn\'t load visitor numbers. <button type="button" class="ghost" id="visitRetry">Try again</button>';
     $('visitRetry').onclick = () => loadVisits(days);
