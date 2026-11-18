@@ -158,11 +158,12 @@ async function daysIn(request, route) {
 //  - public GETs go through the ready-made answers
 //  - owner admin reads come from the last overnight run; owner saves wait in a queue for the overnight run
 //    (add ?now=1 to save straight away, which wakes the database)
+const handlers = {};    // route -> wrapped handler, so the overnight run can call admin routes directly
 if (!app.__gigsWrapped) {
   const orig = app.http.bind(app);
   app.http = (name, opts) => {
     const route = opts.route || name, handler = opts.handler;
-    return orig(name, { ...opts, handler: async (request, context) => {
+    return orig(name, { ...opts, handler: handlers[route] = async (request, context) => {
       if (request.headers.get('x-report-key') && await checkRunner(request).catch(() => false)) markRunner(request, route.startsWith('manage/'));
       const runner = isRunner(request);
       if (route.startsWith('manage/') && request.method !== 'GET') {
@@ -196,4 +197,18 @@ if (!app.__gigsWrapped) {
   app.__gigsWrapped = true;
 }
 
-module.exports = { sql, query, json, fail, ukDay };
+// Run a route's handler as the overnight run (as the owner), without going through the web address
+// (the /api/manage/* addresses only let a signed-in owner in).
+async function runAsOwner(route, method, path, body, context) {
+  const h = handlers[route];
+  if (!h) return { status: 404, jsonBody: { error: 'No such route: ' + route } };
+  const u = new URL(path, 'https://www.gigsintoon.co.uk');
+  const req = { method, url: u.href, query: u.searchParams, params: {}, user: null,
+    headers: new Headers({ 'content-type': 'application/json' }),
+    text: async () => body || '', json: async () => JSON.parse(body || 'null'),
+    arrayBuffer: async () => Buffer.from(body || ''), clone() { return req; } };
+  markRunner(req, true);
+  return h(req, context);
+}
+
+module.exports = { sql, query, json, fail, ukDay, runAsOwner };

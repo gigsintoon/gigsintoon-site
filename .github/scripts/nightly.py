@@ -36,18 +36,18 @@ if os.environ.get('EVENT') == 'schedule' and uk.hour > 5:
     print(f'Not the small hours in the UK ({uk:%H:%M}) - skipping'); sys.exit(0)
 
 # 1. Queued changes, oldest first. Waking the database can take a minute, so the first call retries.
-st, raw = call('/api/manage/queue', tries=6)
+st, raw = call('/api/nightly/queue', tries=6)
 if st != 200:
     print('Could not read the queue:', st, raw[:300]); sys.exit(1)
 items = json.loads(raw)['items']
 print(f'{len(items)} queued change(s)')
 failed = 0
 for it in items:
-    st, raw = call(it['path'], it.get('method', 'POST'), it.get('body') or None, tries=3)
+    st, raw = call('/api/nightly/run', 'POST', json.dumps({k: it.get(k) for k in ('route', 'method', 'path', 'body')}), tries=2)
     ok = 200 <= st < 300
-    print(f"  {it['queuedAt'][:16]} {it['route']}: {st} {'' if ok else raw[:200]}")
+    print(f"  {it['queuedAt'][:16]} {it['route']}: {st} {'' if ok else raw[:300]}")
     if ok:
-        call('/api/manage/queue', 'POST', json.dumps({'done': it['name']}))
+        call('/api/nightly/queue', 'POST', json.dumps({'done': it['name']}))
     else:
         failed += 1   # left in the queue for tomorrow (and shown in the log)
 
@@ -58,13 +58,18 @@ fixed = [f'/api/onthisday?month={m}&day={d}', '/api/week', '/api/guess', '/api/f
 for p in fixed:
     st, _ = call(p)
     print(f'  {p} {st}')
-st, raw = call('/api/manage/nightly' + ('?force=1' if len(items) - failed > 0 else ''))
+st, raw = call('/api/nightly/urls' + ('?force=1' if len(items) - failed > 0 else ''))
 urls = json.loads(raw)['urls'] if st == 200 else []
 days = [f'/api/onthisday?month={mm}&day={dd}' for mm in range(1, 13)
         for dd in range(1, (datetime.date(2024 + (mm == 12), mm % 12 + 1, 1) - datetime.timedelta(days=1)).day + 1)]
 todo = sorted(set(urls + days) - set(fixed))
+def rebuild(p):
+    if p.startswith('/api/manage/'):   # admin lists: read as the owner via /api/nightly/run
+        route = p[5:].split('?')[0]
+        return call('/api/nightly/run', 'POST', json.dumps({'route': route, 'method': 'GET', 'path': p}), tries=2, timeout=90)[0]
+    return call(p, tries=2, timeout=90)[0]
 with ThreadPoolExecutor(6) as ex:
-    codes = list(ex.map(lambda p: call(p, tries=2, timeout=90)[0], todo))
+    codes = list(ex.map(rebuild, todo))
 print(f'Rebuilt {len(todo)} answers:', {c: codes.count(c) for c in set(codes)})
 
 # 3. Weekly report (Mondays)

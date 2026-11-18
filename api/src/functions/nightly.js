@@ -1,25 +1,37 @@
 const { app } = require('@azure/functions');
-const { query, json, fail, ukDay } = require('../db');
+const { query, json, fail, ukDay, runAsOwner } = require('../db');
 const { isOwner, isRunner } = require('../auth');
 const store = require('../store');
 
-// The once-a-day database run (GitHub Action "Nightly run", using the report key):
-//   1. GET  /api/manage/queue            -> the admin saves and contact messages waiting since yesterday
-//      (it replays each one to its own address, then POST /api/manage/queue {done:name} to clear it)
-//   2. GET  /api/manage/nightly          -> saves the cover/ticket list for blurred teasers and returns every
-//      address with a ready-made answer, plus every band, gig and year page, for the Action to rebuild
-// Michael can look at the queue too (GET), to see what's waiting.
+// The once-a-day database run (GitHub Action "Nightly run", using the report key). Its addresses are under
+// /api/nightly/ because /api/manage/* only lets a signed-in owner in:
+//   GET  /api/nightly/queue   -> the admin saves and contact messages waiting since yesterday
+//   POST /api/nightly/run     {route, method, path, body} -> does one of them (or reads an admin list) as the owner
+//   POST /api/nightly/queue   {done: name} -> clears a queued item once it's done
+//   GET  /api/nightly/urls    -> saves the cover/ticket list for blurred teasers and returns every address with a
+//                                ready-made answer, plus every band, gig and year page and the admin lists, to rebuild
+// Michael can see what's waiting at GET /api/manage/queue.
 
 app.http('manageQueue', {
-  methods: ['GET', 'POST'],
+  methods: ['GET'],
   authLevel: 'anonymous',
   route: 'manage/queue',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    try { const items = await store.queueList(); return json({ count: items.length, items }); }
+    catch (err) { return fail(context, err); }
+  }
+});
+
+app.http('nightlyQueue', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  route: 'nightly/queue',
+  handler: async (request, context) => {
+    if (!isRunner(request)) return json({ error: 'Only the overnight run.' }, 403);
     try {
       if (request.method === 'POST') {
         const b = await request.json().catch(() => ({}));
-        if (!isRunner(request)) return json({ error: 'Only the overnight run clears the queue.' }, 403);
         return json({ ok: await store.queueDone(String(b.done || '')) });
       }
       const items = await store.queueList();
@@ -28,10 +40,27 @@ app.http('manageQueue', {
   }
 });
 
-app.http('manageNightly', {
+app.http('nightlyRun', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'nightly/run',
+  handler: async (request, context) => {
+    if (!isRunner(request)) return json({ error: 'Only the overnight run.' }, 403);
+    try {
+      const b = await request.json().catch(() => ({}));
+      const route = String(b.route || '');
+      if (!/^(manage\/[\w-]+|contact)$/.test(route)) return json({ error: 'Not an admin route.' }, 400);
+      const res = await runAsOwner(route, String(b.method || 'POST').toUpperCase(), String(b.path || '/api/' + route), b.body == null ? '' : String(b.body), context);
+      const status = (res && res.status) || 200;
+      return json({ status, body: res && res.jsonBody !== undefined ? res.jsonBody : null }, status >= 400 ? 502 : 200);
+    } catch (err) { return fail(context, err); }
+  }
+});
+
+app.http('nightlyUrls', {
   methods: ['GET'],
   authLevel: 'anonymous',
-  route: 'manage/nightly',
+  route: 'nightly/urls',
   handler: async (request, context) => {
     if (!isRunner(request)) return json({ error: 'Only the overnight run.' }, 403);
     try {
