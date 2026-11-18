@@ -846,6 +846,21 @@ app.http('roundup', {
     const m = /^(\d{4})-(\d{2})-(\d{2})(?:\.jpg)?$/.exec(request.params.date || '');
     if (!m) return { status: 400 };
     const month = +m[2], day = +m[3];
+    // The finished picture is kept in storage (social/roundup-YYYY-MM-DD.jpg) and reused until something on that
+    // day is saved, so the evening round-up post (and anyone re-fetching it) doesn't wake the database.
+    const date = `${m[1]}-${m[2]}-${m[3]}`;
+    let blob = null, ver = '';
+    try {
+      const v = await store.versions();
+      ver = String(v.g) + '-' + String(v.d[`${m[2]}-${m[3]}`] || '0') + '-' + (date <= ukDay() ? 'open' : 'future');
+      const { BlobServiceClient } = require('@azure/storage-blob');
+      blob = BlobServiceClient.fromConnectionString(process.env.STORAGE_CONNECTION_STRING).getContainerClient('media')
+        .getBlockBlobClient(`social/roundup-${date}.jpg`);
+      const props = await blob.getProperties().catch(() => null);
+      if (props && props.metadata && props.metadata.ver === ver.replace(/[^0-9a-z-]/gi, '')) {
+        return { status: 200, body: await blob.downloadToBuffer(), headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=3600', 'X-Cache': 'hit' } };
+      }
+    } catch (e) { context.warn('roundup cache read failed: ' + e.message); }
     try {
       const rows = await query(
         `SELECT TOP 36 (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS Url
@@ -877,6 +892,8 @@ app.http('roundup', {
       </svg>`);
       const body = await sharp()({ create: { width: S, height: S, channels: 3, background: '#111214' } })
         .composite([...tiles.filter(Boolean), { input: svg, left: 0, top: 0 }]).jpeg({ quality: 86 }).toBuffer();
+      if (blob && ver) await blob.uploadData(body, { metadata: { ver: ver.replace(/[^0-9a-z-]/gi, '') },
+        blobHTTPHeaders: { blobContentType: 'image/jpeg', blobCacheControl: 'public, max-age=3600' } }).catch(e => context.warn('roundup cache write failed: ' + e.message));
       return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=3600' } };
     } catch (err) { return fail(context, err); }
   }

@@ -23,7 +23,7 @@ jobs:
           # only in the small hours (UK time): a late-running job still counts; a summer-time job firing in winter (or the reverse) at 23:xx is skipped
           case "$H" in 00|01|02|03|04|05) ;; *) if [ "${{ github.event_name }}" = "schedule" ]; then echo "Not the small hours in the UK ($H) - skipping"; exit 0; fi ;; esac
           M=$(TZ=Europe/London date +%-m); D=$(TZ=Europe/London date +%-d); Y=$(TZ=Europe/London date +%Y)
-          for u in "/api/onthisday?month=$M&day=$D" /api/week /api/guess /api/favourites /api/stats /api/years "/api/years/$Y" /api/random /api/sitemap; do
+          for u in "/api/onthisday?month=$M&day=$D" /api/week /api/guess /api/favourites /api/stats /api/years "/api/years/$Y" /api/random /api/sitemap "/api/search?all=1" "/api/roundup/$(TZ=Europe/London date +%F).jpg"; do
             curl -sS -m 90 -o /dev/null -w "$u %{http_code} %{time_total}s\n" "https://www.gigsintoon.co.uk$u" || true
           done
           # every day of the year (4 at a time); 2024 is a leap year so 29 Feb is included
