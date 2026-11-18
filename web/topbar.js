@@ -19,15 +19,25 @@
         <a href="https://www.youtube.com/@michaelboyle3064" target="_blank" rel="noopener" title="Gigs in toon videos on YouTube"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.6 15.6V8.4l6.3 3.6-6.3 3.6z"/></svg></a>
       </nav>`;
   const form = bar.querySelector('#tbSearch'), box = form.querySelector('input'), out = form.querySelector('.results');
-  let t;
+  let t, allBands = null, owner = null;
+  // Visitors search a ready-made list of every band in the browser (one cached download, no database
+  // wake-up per keystroke). The owner searches live, so bands not posted yet still show up.
+  async function findBands(q) {
+    if (owner === null) owner = await fetch('/api/me').then(r => r.json()).then(m => !!m.owner).catch(() => false);
+    if (owner) return ((await fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json())).bands) || [];
+    if (!allBands) allBands = ((await fetch('/api/search?all=1').then(r => r.json())).bands) || [];
+    const n = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const nq = n(q);
+    return allBands.filter(b => n(b.Name).includes(nq))
+      .sort((a, b) => (n(b.Name).startsWith(nq) - n(a.Name).startsWith(nq)) || a.Name.localeCompare(b.Name)).slice(0, 50);
+  }
   box.addEventListener('input', () => {
     clearTimeout(t);
     const q = box.value.trim();
     if (q.length < 2) { out.hidden = true; return; }
     t = setTimeout(async () => {
       try {
-        const r = await fetch('/api/search?q=' + encodeURIComponent(q)).then(r => r.json());
-        const bands = r.bands || [];
+        const bands = await findBands(q);
         out.innerHTML = bands.length
           ? bands.map(b => `<a class="sr" href="/?band=${b.BandId}"><span>${esc(b.Name)}</span><span class="muted">${b.ReleaseCount}</span></a>`).join('')
           : '<p class="muted" style="padding:9px 12px;margin:0">No bands found</p>';

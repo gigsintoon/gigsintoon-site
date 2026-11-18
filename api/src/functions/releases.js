@@ -277,6 +277,18 @@ app.http('favourites', {
   }
 });
 
+// The picture behind a teaser, looked up once and kept until something is saved (so blurred covers
+// on day pages and in Guess the Cover don't wake the database for every visitor).
+async function teaserUrl(kind, id, sqlText) {
+  const v = await store.versions().catch(() => null);
+  const k = `teaserurl-${kind}-${id}`, stamp = v ? v.g + '|' + v.l : null;
+  if (stamp) { const hit = await store.getCached(k, stamp).catch(() => undefined); if (hit !== undefined) return hit || null; }
+  const rows = await query(sqlText, { id: [sql.Int, id] });
+  const url = rows.length ? rows[0].PublicUrl : '';
+  if (stamp) await store.setCached(k, stamp, url).catch(() => {});
+  return url || null;
+}
+
 // GET /api/teaser/123 -> the cover of a release that's still to come, without its file name (shown blurred)
 app.http('teaser', {
   methods: ['GET'],
@@ -285,11 +297,11 @@ app.http('teaser', {
   handler: async (request, context) => {
     if (prelaunch(request)) return prelaunchResponse();
     try {
-      const rows = await query(
+      const url = await teaserUrl('r', parseInt(request.params.id, 10),
         `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Releases r ON r.ReleaseId = i.ReleaseId
-          WHERE r.ReleaseId = @id AND r.Status <> 'DoNotPost' ORDER BY i.SortOrder, i.ImageId`,
-        { id: [sql.Int, parseInt(request.params.id, 10)] });
-      if (!rows.length) return { status: 404 };
+          WHERE r.ReleaseId = @id AND r.Status <> 'DoNotPost' ORDER BY i.SortOrder, i.ImageId`);
+      if (!url) return { status: 404 };
+      const rows = [{ PublicUrl: url }];
       const b = Math.max(0, Math.min(40, parseFloat(request.query.get('b') ?? '12') || 0));
       const body = await blurred(rows[0].PublicUrl, isOwner(request) && request.query.get('b') === '0' ? 0 : Math.max(b, 1.5), Math.min(600, Math.max(96, parseInt(request.query.get('s') || '600', 10) || 600)));
       return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };
@@ -307,11 +319,11 @@ app.http('gigTeaser', {
   handler: async (request, context) => {
     if (prelaunch(request)) return prelaunchResponse();
     try {
-      const rows = await query(
+      const url = await teaserUrl('g', parseInt(request.params.id, 10),
         `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Gigs g ON g.GigId = i.GigId
-          WHERE g.GigId = @id AND g.Status = 'Posted' ORDER BY i.SortOrder, i.ImageId`,
-        { id: [sql.Int, parseInt(request.params.id, 10)] });
-      if (!rows.length) return { status: 404 };
+          WHERE g.GigId = @id AND g.Status = 'Posted' ORDER BY i.SortOrder, i.ImageId`);
+      if (!url) return { status: 404 };
+      const rows = [{ PublicUrl: url }];
       const b = Math.max(0, Math.min(40, parseFloat(request.query.get('b') ?? '12') || 0));
       const body = await blurred(rows[0].PublicUrl, isOwner(request) && request.query.get('b') === '0' ? 0 : Math.max(b, 1.5));
       return { status: 200, body, headers: { 'Content-Type': 'image/jpeg', 'Cache-Control': 'public, max-age=86400' } };

@@ -51,8 +51,9 @@ const STAMPS = {
   favourites: () => ukDay().slice(0, 4),
   'years/{year:int?}': r => (r.params.year && Number(r.params.year) < Number(ukDay().slice(0, 4))) ? 'old' : ukDay(),
 };
-const DAILY = ['week', 'stats', 'sitemap', 'search', 'links', 'roundup/{date}'];
-const ON_CHANGE = ['venue', 'bands/{id:int}', 'gigs/{id:int}'];   // only rebuilt when something is saved
+const DAILY = ['week', 'stats', 'sitemap', 'search', 'roundup/{date}'];
+// links only change when Micky saves something, so they don't need rebuilding every day
+const ON_CHANGE = ['venue', 'bands/{id:int}', 'gigs/{id:int}', 'links'];   // only rebuilt when something is saved
 const cacheKey = (route, r) => route.replace(/[{}:?]/g, '') + '?' + [...Object.entries(r.params || {}), ...[...r.query.entries()].sort()]
   .map(([k, v]) => `${k}=${String(v).slice(0, 60)}`).join('&');
 
