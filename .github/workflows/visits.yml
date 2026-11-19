@@ -1,0 +1,16 @@
+name: Visitors now
+# Prints the visitor counts (from storage - doesn't wake the database). Run by hand.
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: 'How many days'
+        default: '7'
+jobs:
+  visits:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Visitor counts
+        env:
+          REPORT_KEY: ${{ secrets.REPORT_KEY }}
+        run: curl -sS -m 90 --retry 2 -H "x-report-key: $REPORT_KEY" "https://www.gigsintoon.co.uk/api/nightly/visits?days=${{ github.event.inputs.days }}" | python3 -m json.tool

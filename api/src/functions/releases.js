@@ -1080,3 +1080,19 @@ app.http('adminFavourites', {
     } catch (err) { return fail(context, err); }
   }
 });
+
+// GET /api/nightly/visits?days=7 - the visitor counts for the overnight-run key (GitHub "Visitors now" action),
+// so Claude can check them without a browser. Storage only: never touches the database.
+app.http('nightlyVisits', {
+  methods: ['GET'],
+  authLevel: 'anonymous',
+  route: 'nightly/visits',
+  handler: async (request, context) => {
+    if (!isRunner(request)) return json({ error: 'Only the overnight-run key.' }, 403);
+    try {
+      const days = Math.min(Math.max(parseInt(request.query.get('days') || '7', 10) || 7, 1), 90);
+      const { byDay, pages, refs, clicks } = await visitData(days, 10);
+      return json({ today: ukDay(), byDay, pages, refs, clicks });
+    } catch (err) { return fail(context, err); }
+  }
+});
