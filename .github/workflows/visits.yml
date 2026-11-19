@@ -13,4 +13,5 @@ jobs:
       - name: Visitor counts
         env:
           REPORT_KEY: ${{ secrets.REPORT_KEY }}
-        run: curl -sS -m 90 --retry 2 -H "x-report-key: $REPORT_KEY" "https://www.gigsintoon.co.uk/api/nightly/visits?days=${{ github.event.inputs.days }}" | python3 -m json.tool
+        run: |
+          curl -sS -m 90 --retry 2 -H "x-report-key: $REPORT_KEY" "https://www.gigsintoon.co.uk/api/nightly/visits?days=${{ github.event.inputs.days }}" | python3 -m json.tool
