@@ -1092,7 +1092,10 @@ app.http('nightlyVisits', {
     try {
       const days = Math.min(Math.max(parseInt(request.query.get('days') || '7', 10) || 7, 1), 90);
       const { byDay, pages, refs, clicks } = await visitData(days, 10);
-      return json({ today: ukDay(), byDay, pages, refs, clicks });
+      const d = ukDay();
+      const guess = { tally: await tallyFor(d).catch(() => null),
+        scores: (await scoresFor(d).catch(() => [])).map(x => ({ guesses: x.guesses, at: null })) };
+      return json({ today: d, byDay, pages, refs, clicks, guess });
     } catch (err) { return fail(context, err); }
   }
 });
