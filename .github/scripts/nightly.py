@@ -1,6 +1,7 @@
 """The site's once-a-day database run (see .github/workflows/nightly.yml).
 
 1. Apply the admin saves and contact messages queued during the day.
+   Then copy every table into Azure Storage and check the copy (moving off SQL, step 1 - see api/src/functions/export.js).
 2. Rebuild every ready-made answer that's out of date (each day, this week, stats, band and gig pages,
    the admin lists Michael reads...), so visitors and Michael get them all day without waking the database.
 3. On Mondays, fetch the weekly report.
@@ -51,6 +52,33 @@ for it in items:
     else:
         failed += 1   # left in the queue for tomorrow (and shown in the log)
 
+# 1b. Moving off SQL, step 1: copy every table into Azure Storage and check each copy matches SQL.
+#     Nothing reads the copy yet; a mismatch is reported (and turns the run red) but doesn't stop the rebuild.
+export_ok = True
+try:
+    st, raw = call('/api/nightly/export' + ('?force=1' if len(items) - failed > 0 else ''), tries=2)
+    if st == 200 and json.loads(raw).get('done'):
+        print("Storage copy: today's copy already made and checked")
+    elif st == 200:
+        tables = json.loads(raw)['tables']
+        results = []
+        for t in tables:
+            st, raw = call('/api/nightly/export', 'POST', json.dumps({'table': t}), tries=2, timeout=120)
+            r = json.loads(raw) if st == 200 else {'table': t, 'ok': False, 'problems': [f'HTTP {st}: {raw[:200]!r}']}
+            results.append(r)
+            print(f"  copy {t}: {r.get('rows', '?')} rows {'OK' if r.get('ok') else 'PROBLEM ' + '; '.join(r.get('problems') or [])}")
+        st, raw = call('/api/nightly/export', 'POST', json.dumps({'finish': True, 'results': results}), tries=2)
+        summary = json.loads(raw) if st == 200 else {'ok': False, 'error': raw[:200].decode(errors='replace')}
+        export_ok = bool(summary.get('ok'))
+        print(f"Storage copy: {'all ' + str(summary.get('tableCount')) + ' tables match' if export_ok else 'PROBLEM'} "
+              f"({summary.get('totalRows', '?')} rows; missing {summary.get('missing')}, failed {summary.get('failed')})")
+    else:
+        export_ok = False
+        print('Storage copy: could not list tables:', st, raw[:200])
+except Exception as e:   # never let the copy stop the rebuild
+    export_ok = False
+    print("Storage copy: failed -", e)
+
 # 2. Rebuild everything
 y, m, d = uk.year, uk.month, uk.day
 fixed = [f'/api/onthisday?month={m}&day={d}', '/api/week', '/api/guess', '/api/favourites', '/api/stats', '/api/years',
@@ -80,4 +108,4 @@ if uk.weekday() == 0 or os.environ.get('REPORT') == '1':
         print('Weekly report saved')
     else:
         print('Weekly report failed:', st, raw[:200])
-sys.exit(1 if failed else 0)
+sys.exit(1 if failed or not export_ok else 0)
