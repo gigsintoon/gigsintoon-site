@@ -148,6 +148,9 @@ function cleanPath(p) {
 const CONTENT_TYPES = { jpg: 'image/jpeg', jpeg: 'image/jpeg', jfif: 'image/jpeg', png: 'image/png',
   webp: 'image/webp', gif: 'image/gif' };
 
+// Chart position as a number: accepts 27, "27" or "No 27" (as written in the spreadsheet); anything else is left blank.
+function chartNumber(c) { if (c == null || c === '') return null; const n = parseInt(String(c).replace(/[^0-9]/g, ''), 10); return Number.isFinite(n) && n > 0 ? n : null; }
+
 // POST /api/manage/release  body: one release (same shape as a row in releases-MM.json) or an array of them.
 // Adds the release, or updates it if band + title + date already exist; links any images listed.
 app.http('adminRelease', {
@@ -165,6 +168,7 @@ app.http('adminRelease', {
           return json({ ok: false, error: 'Each release needs band, title and date (YYYY-MM-DD).' }, 400);
         }
         r.type = r.type || 'Album'; r.status = r.status || 'NotPosted'; r.onSonos = !!r.onSonos;
+        r.chart = chartNumber(r.chart);
         r.images = (r.images || []).map((img, i) => {
           const path = cleanPath(img.path);
           return { kind: img.kind || 'Cover', path, urlPath: path.split('/').map(encodeURIComponent).join('/'), order: img.order || i + 1 };
