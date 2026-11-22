@@ -4,6 +4,8 @@
    Then copy every table into Azure Storage and check the copy (moving off SQL, step 1 - see api/src/functions/export.js),
    and answer every public page from both SQL and the copy to check they match (step 2 - see api/src/functions/compare.js).
    Which one the pages actually use is the switch at /api/manage/data-source.
+   Step 3: once saves go to storage (switch /api/manage/write-target = storage) there's no queue and no SQL: this
+   run just makes a dated backup of the storage master and rebuilds the pages.
 2. Rebuild every ready-made answer that's out of date (each day, this week, stats, band and gig pages,
    the admin lists Michael reads...), so visitors and Michael get them all day without waking the database.
 3. On Mondays, fetch the weekly report.
@@ -60,7 +62,12 @@ export_ok = True
 copied = False
 try:
     st, raw = call('/api/nightly/export' + ('?force=1' if len(items) - failed > 0 else ''), tries=2)
-    if st == 200 and json.loads(raw).get('done'):
+    if st == 200 and json.loads(raw).get('storage'):
+        # step 3: storage is the master now - this is just tonight's dated backup of it (SQL isn't used)
+        d = json.loads(raw).get('daily') or {}
+        export_ok = d.get('ok', True) is not False
+        print(f"Storage is the master: daily copy {'already made' if d.get('done') else ('made and checked (' + str(d.get('totalRows')) + ' rows)' if export_ok else 'PROBLEM ' + str(d.get('failed')))}")
+    elif st == 200 and json.loads(raw).get('done'):
         print("Storage copy: today's copy already made and checked")
     elif st == 200:
         tables = json.loads(raw)['tables']

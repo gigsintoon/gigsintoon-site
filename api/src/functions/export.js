@@ -121,6 +121,7 @@ app.http('nightlyExport', {
     if (!isRunner(request)) return json({ error: 'Only the overnight run.' }, 403);
     const day = ukDay();
     try {
+      if (request.method === 'GET' && await require('../master').on()) return json({ day, storage: true, daily: await require('../master').daily(day) });
       if (request.method === 'GET') {
         // The run is scheduled several times a night: once today's copy is good, later runs stop here
         // (this check only reads storage, so it doesn't wake the database)

@@ -13,7 +13,11 @@ function getPool() {
   return poolPromise;
 }
 
-async function query(text, params = {}) {
+// Step 3: once storage is the master (switch "write-target" = "storage") nothing may use SQL any more, so a
+// forgotten SQL call shows up as an error instead of quietly waking the database and reading old data.
+// (The copy-back to SQL, if it's ever needed, passes { allowSql: true }.)
+async function query(text, params = {}, opts = {}) {
+  if (!opts.allowSql && await require('./master').on()) throw new Error('The database is switched off (the site now saves to storage).');
   const pool = await getPool();
   const req = pool.request();
   for (const [name, [type, value]] of Object.entries(params)) req.input(name, type, value);
@@ -70,6 +74,10 @@ async function cachedCall(name, route, handler, request, context) {
     const part = route === 'onthisday' ? (v.d[`${pad(request.query.get('month'))}-${pad(request.query.get('day'))}`] || '0') : v.l;
     stamp = v.g + '|' + part + '|' + stampFn(request);
   } catch (err) { context.warn('cache read failed: ' + err.message); }
+  // Step 3: with storage as the master, working an answer out is cheap (no database), so out-of-date answers are
+  // simply worked out again straight away - a save shows on the site at once. The owner gets live answers.
+  const live = await require('./master').on().catch(() => false);
+  if (live && isOwner(request) && !runner) return handler(request, context);
   // The owner browsing the public pages sees the same ready-made answers as visitors (from the last overnight run).
   if (isOwner(request) && !runner) {
     const have = k ? await store.getStale(k).catch(() => undefined) : undefined;
@@ -80,13 +88,17 @@ async function cachedCall(name, route, handler, request, context) {
     const hit = await store.getCached(k, stamp).catch(() => undefined);
     if (hit !== undefined) return { status: 200, jsonBody: hit, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'hit' } };
     // Out of date: visitors get the last saved answer; only the overnight run rebuilds it (so the database wakes once a day)
-    if (!runner) {
+    if (!runner && !live) {
       const old = await store.getStale(k).catch(() => undefined);
       if (old !== undefined) return { status: 200, jsonBody: old, headers: { 'Cache-Control': 'public, max-age=300', 'X-Cache': 'saved' } };
     }
   }
   // Never asked for before (or the overnight run): work it out and save it
   const res = await handler(request, context);
+  if (live && !runner && res && (res.status || 200) >= 500 && k) {     // couldn't work it out: the last good answer is better than an error
+    const old = await store.getStale(k).catch(() => undefined);
+    if (old !== undefined) return { status: 200, jsonBody: old, headers: { 'Cache-Control': 'public, max-age=60', 'X-Cache': 'saved-after-error' } };
+  }
   if (stamp && res && (res.status || 200) === 200 && res.jsonBody !== undefined) {
     await store.setCached(k, stamp, res.jsonBody, pathOf(request)).catch(err => context.warn('cache write failed: ' + err.message));
     res.headers = { ...(res.headers || {}), 'Cache-Control': 'public, max-age=300', 'X-Cache': 'miss' };
@@ -102,8 +114,8 @@ async function checkRunner(request) {
   if (!got) return false;
   if (!keyHash) keyHash = await store.getStale('runner-keyhash').catch(() => undefined) || null;
   if (!keyHash) {
-    const row = await query(`SELECT Value FROM music.Settings WHERE Name = N'ReportKeyHash'`);
-    keyHash = row[0] ? row[0].Value : null;
+    if (await require('./master').on()) keyHash = await require('./save').reportKeyHash();
+    else { const row = await query(`SELECT Value FROM music.Settings WHERE Name = N'ReportKeyHash'`); keyHash = row[0] ? row[0].Value : null; }
     if (keyHash) await store.setCached('runner-keyhash', 'k', keyHash).catch(() => {});
   }
   if (!keyHash) return false;
@@ -117,10 +129,10 @@ const ADMIN_SNAPSHOT = ['manage/month', 'manage/todos', 'manage/messages', 'mana
   'manage/remembering', 'manage/site-additions', 'manage/status-overrides', 'manage/import'];
 // Admin saves that never touch the database: done straight away
 const IMMEDIATE = ['manage/upload', 'manage/upload-link', 'manage/media-copy', 'manage/rebuild', 'manage/report-key',
-  'manage/visits', 'manage/media', 'manage/unread', 'manage/queue', 'manage/nightly', 'manage/data-source', 'manage/compare'];
+  'manage/visits', 'manage/media', 'manage/unread', 'manage/queue', 'manage/nightly', 'manage/data-source', 'manage/compare', 'manage/write-target'];
 
 // Admin saves that don't change anything visitors see
-const NO_BUMP = ['manage/data-source', 'manage/compare', 'manage/deezer-fill', 'manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key', 'manage/queue', 'manage/nightly'];
+const NO_BUMP = ['manage/data-source', 'manage/compare', 'manage/write-target', 'manage/deezer-fill', 'manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key', 'manage/queue', 'manage/nightly'];
 // Saves that name releases by id (release-fix, status, release-links): look up which days those releases are on
 const BY_RELEASE_ID = ['manage/release-fix', 'manage/status', 'manage/release-links'];
 // Which days ("MM-DD") a save is about, from dates in its body; null = can't tell, refresh everything
@@ -142,7 +154,11 @@ async function daysIn(request, route) {
       if (BY_RELEASE_ID.includes(route) && Number.isInteger(item.id)) ids.push(item.id);
       else if (!m && !(item.month && item.day)) unknownItem = true;
     }
-    if (ids.length && !unknownItem) {
+    if (ids.length && !unknownItem && await require('./master').on()) {
+      const ds = await require('./save').daysOfReleases(ids);
+      if (!ds.length) return null;
+      ds.forEach(x => out.add(x));
+    } else if (ids.length && !unknownItem) {
       const rows = await query(`SELECT DISTINCT ReleaseMonth AS M, ReleaseDay AS D FROM music.Releases
                                  WHERE ReleaseId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))`,
         { ids: [sql.NVarChar(sql.MAX), JSON.stringify(ids)] });
@@ -169,23 +185,31 @@ if (!app.__gigsWrapped) {
       if (request.headers.get('x-report-key') && await checkRunner(request).catch(() => false)) markRunner(request, route.startsWith('manage/'));
       const runner = isRunner(request);
       if (route.startsWith('manage/') && request.method !== 'GET') {
-        if (isOwner(request) && !runner && !IMMEDIATE.includes(route) && request.query.get('now') !== '1') {
+        const storage = await require('./master').on();    // step 3: saves go straight into storage - no queue
+        if (!storage && isOwner(request) && !runner && !IMMEDIATE.includes(route) && request.query.get('now') !== '1') {
           const body = await request.text();
           const u = new URL(request.url);
           await store.queueAdd({ route, method: request.method, path: u.pathname + u.search, body });
           return { status: 202, jsonBody: { ok: true, queued: true, note: 'Saved - it goes into the database in the overnight run (add ?now=1 to do it straight away).' } };
         }
         const days = await daysIn(request, route);
+        const bodyText = storage && !IMMEDIATE.includes(route) ? await request.clone().text().catch(() => '') : null;
         const res = await handler(request, context);
+        const saved = !IMMEDIATE.includes(route) && res && (res.status || 200) < 400;
         // a save that reached the database: the storage copy is out of date until the next overnight copy
-        if (!IMMEDIATE.includes(route) && res && (res.status || 200) < 400) await require('./catalogue').noteChange().catch(err => context.warn('change note failed: ' + err.message));
+        if (saved && !storage) await require('./catalogue').noteChange().catch(err => context.warn('change note failed: ' + err.message));
+        // a save made in storage: kept in the journal too, so it could be replayed into SQL if we ever go back
+        if (saved && storage && isOwner(request)) {
+          const u = new URL(request.url);
+          await require('./master').journalAdd({ route, method: request.method, path: u.pathname + u.search, body: bodyText }).catch(err => context.warn('journal failed: ' + err.message));
+        }
         if (route === 'manage/report-key') await forgetRunnerKey();
         if (res && (res.status || 200) < 400 && isOwner(request) && !NO_BUMP.includes(route)) {
           await store.bumpVersion({ days }).catch(err => context.warn('version bump failed: ' + err.message));
         }
         return res;
       }
-      if (route.startsWith('manage/') && request.method === 'GET' && ADMIN_SNAPSHOT.includes(route) && isOwner(request)) {
+      if (route.startsWith('manage/') && request.method === 'GET' && ADMIN_SNAPSHOT.includes(route) && isOwner(request) && !(await require('./master').on())) {
         const k = 'admin-' + cacheKey(route, request);
         if (!runner && request.query.get('now') !== '1') {
           const have = await store.getStale(k).catch(() => undefined);

@@ -1,4 +1,6 @@
 const { app } = require('@azure/functions');
+const M = require('../master');
+const S = require('../save');
 const { sql, query, json } = require('../db');
 const { isOwner, prelaunch, prelaunchResponse } = require('../auth');
 
@@ -30,6 +32,7 @@ app.http('adminReleaseLinks', {
   route: 'manage/release-links',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.releaseLinks(request, context);   // step 3: saved in storage
     try {
       const ok = u => (typeof u === 'string' && /^https:\/\/(music\.apple\.com|www\.deezer\.com)\//.test(u)) ? u.slice(0, 400) : null;
       const rows = (await request.json()).filter(x => Number.isInteger(x.id)).map(x => ({ id: x.id, apple: ok(x.apple), deezer: ok(x.deezer) }));
@@ -53,6 +56,7 @@ app.http('adminWriteupReplace', {
   route: 'manage/writeup-replace',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.writeupReplace(request, context);   // step 3: saved in storage
     try {
       const b = await request.json();
       const find = String(b.find || '').trim(), rep = String(b.replace ?? '');
@@ -117,7 +121,8 @@ app.http('adminDeezerFill', {
     try {
       const b = await request.json();
       const ids = (b.ids || []).map(n => parseInt(n, 10)).filter(n => n > 0).slice(0, 40);
-      const rels = await query(`SELECT r.ReleaseId, r.Title, r.ReleaseType, b.Name AS Band, l.AppleUrl, l.DeezerUrl
+      const storage = await M.on();
+      const rels = storage ? await S.deezerCandidates(ids) : await query(`SELECT r.ReleaseId, r.Title, r.ReleaseType, b.Name AS Band, l.AppleUrl, l.DeezerUrl
           FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId LEFT JOIN music.ReleaseLinks l ON l.ReleaseId = r.ReleaseId
          WHERE r.ReleaseId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))`, { ids: [sql.NVarChar(sql.MAX), JSON.stringify(ids)] });
       const found = [], missed = [];
@@ -129,7 +134,8 @@ app.http('adminDeezerFill', {
         await sleep(120);
       }
       let saved = 0;
-      if (b.save && found.length) {
+      if (b.save && found.length && storage) saved = await S.deezerSave(found) || 0;
+      else if (b.save && found.length) {
         const rr = await query(`MERGE music.ReleaseLinks AS t
             USING (SELECT * FROM OPENJSON(@p) WITH (id INT, apple NVARCHAR(400), url NVARCHAR(400))) AS s ON t.ReleaseId = s.id
             WHEN MATCHED THEN UPDATE SET DeezerUrl = s.url, UpdatedAt = SYSUTCDATETIME()
