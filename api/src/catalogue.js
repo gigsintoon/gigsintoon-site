@@ -109,7 +109,9 @@ async function use(request) {
 // ---------- matching SQL's behaviour ----------
 // The database compares text without regard to case (but with accents), and ignores trailing spaces.
 const coll = new Intl.Collator('en', { sensitivity: 'accent' });
-const cmp = (a, b) => (a == null ? (b == null ? 0 : -1) : b == null ? 1 : coll.compare(String(a), String(b)));
+// (and, like the database's "word sort", it skips apostrophes and hyphens when ordering: The Killers before The K's)
+const wordSort = t => String(t).replace(/['’-]/g, '');
+const cmp = (a, b) => (a == null ? (b == null ? 0 : -1) : b == null ? 1 : (coll.compare(wordSort(a), wordSort(b)) || coll.compare(String(a), String(b))));
 const eqText = (a, b) => a != null && b != null && coll.compare(String(a).replace(/ +$/, ''), String(b).replace(/ +$/, '')) === 0;
 const ukDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
 const d10 = v => (v == null ? null : String(v).slice(0, 10));

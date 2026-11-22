@@ -87,7 +87,7 @@ function onThisDay(s, month, day, all) {
   }
   const teasers = all ? [] : sortBy(onDay.filter(r => !visible(r, T) && r.Status !== 'DoNotPost' && !(s.bands.get(r.BandId) || {}).NeverPost && !dayReached(r, T))
     .map(r => ({ Id: r.ReleaseId, ReleaseYear: r.ReleaseYear, ReleaseType: r.ReleaseType, Letter: String(artistOf(s, r) || '').charAt(0).toUpperCase(),
-                 HasCover: (s.imgRel.get(r.ReleaseId) || []).length ? 1 : 0 })), (a, b) => b.ReleaseYear - a.ReleaseYear);
+                 HasCover: (s.imgRel.get(r.ReleaseId) || []).length ? 1 : 0 })), (a, b) => b.ReleaseYear - a.ReleaseYear, (a, b) => b.Id - a.Id);
   const handles = handlesFor(handleMap(s), [...releases, ...gigs].map(x => x.WriteUp));
   return { month, day, releases, gigs, teasers, gigTeasers, remembering: remembering(s, month, day, T), handles, admin: all };
 }
@@ -149,7 +149,7 @@ function favourites(s, owner) {
       const hit = cands.find(c => norm(c.Title) === t) || cands.find(c => t.length > 3 && (norm(c.Title).startsWith(t) || t.startsWith(norm(c.Title))));
       return { ...a, bandId: bandIds.get(norm(a.artist)) || null, cover: a.cover || (hit && hit.CoverUrl) || null };
     }) }));
-  const upcoming = sortBy(s.Releases.filter(r => d10(r.ReleaseDate) > T.s && r.Status !== 'DoNotPost').map(r => relRow(s, r, owner, T)), (a, b) => cmp(d10(a.ReleaseDate), d10(b.ReleaseDate)));
+  const upcoming = sortBy(s.Releases.filter(r => d10(r.ReleaseDate) > T.s && r.Status !== 'DoNotPost').map(r => relRow(s, r, owner, T)), (a, b) => cmp(d10(a.ReleaseDate), d10(b.ReleaseDate)), (a, b) => b.ReleaseId - a.ReleaseId);
   if (!owner) upcoming.forEach(r => { r.WriteUp = null; });
   return { years, upcoming };
 }
@@ -192,7 +192,7 @@ function stats(s) {
   const topYears = sortBy(countTop(V, r => r.ReleaseYear, () => 0).map(([k, e]) => ({ Year: k, N: e.N })), (a, b) => b.N - a.N).slice(0, 10);
   const gigYears = sortBy(countTop(posted, g => +d10(g.GigDate).slice(0, 4), () => 0).map(([k, e]) => ({ Year: k, N: e.N })), (a, b) => a.Year - b.Year);
   const venues = sortBy(countTop(posted.filter(g => { const v = s.venues.get(g.VenueId); return (v && v.Name != null) || g.VenueAsBilled != null; }), g => ci(vnOf(s, g)), g => vnOf(s, g))
-    .map(([, e]) => ({ Venue: e.label, N: e.N })), (a, b) => b.N - a.N).slice(0, 10);
+    .map(([, e]) => ({ Venue: e.label, N: e.N })), (a, b) => b.N - a.N, (a, b) => cmp(a.Venue, b.Venue)).slice(0, 10);
   const gb = new Map();
   for (const g of posted) for (const x of s.gigBands.get(g.GigId) || []) gb.set(x.BandId, (gb.get(x.BandId) || 0) + 1);
   const gigBands = sortBy([...gb.entries()].filter(([, n]) => n > 1).map(([id, n]) => ({ BandId: id, Name: s.bands.get(id).Name, N: n })), (a, b) => b.N - a.N, (a, b) => cmp(a.Name, b.Name)).slice(0, 10);
@@ -227,7 +227,7 @@ function week(s, all) {
   return { days: days.map(({ m, d }) => {
     const rs = sortBy((s.relByMD.get(m + '-' + d) || []).map(r => ({ r, Y: r.ReleaseYear, Artist: artistOf(s, r), Title: r.Title,
       Shown: all || visible(r, T), Teaser: !visible(r, T) && r.Status !== 'DoNotPost' && !(s.bands.get(r.BandId) || {}).NeverPost && !dayReached(r, T),
-      Cover: firstImg(s.imgRel.get(r.ReleaseId)) })), (a, b) => b.Y - a.Y);
+      Cover: firstImg(s.imgRel.get(r.ReleaseId)) })), (a, b) => b.Y - a.Y, (a, b) => b.r.ReleaseId - a.r.ReleaseId);
     const shown = all ? rs : rs.filter(r => r.Shown), teasers = all ? [] : rs.filter(r => !r.Shown && r.Teaser);
     const thumbs = [...shown.filter(r => r.Cover).map(r => ({ u: thumb(r.Cover), t: `${r.Y} · ${r.Artist} – ${r.Title}` })),
                     ...teasers.filter(r => r.Cover).map(r => ({ u: `/api/teaser/${r.r.ReleaseId}?b=14&s=128`, t: 'Mystery release', tz: true }))].slice(0, 12);
