@@ -2,6 +2,8 @@ const { app } = require('@azure/functions');
 const { sql, query, json, fail } = require('../db');
 const cat = require('../catalogue');
 const fc = require('../fromcatalogue');
+const M = require('../master');
+const S = require('../save');
 const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
 
 // GET /api/gigs/5 -> one gig with all its pictures, bill, setlist and playlist
@@ -51,6 +53,7 @@ app.http('adminGig', {
   route: 'manage/gig',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.gig(request, context);   // step 3: saved in storage
     try {
       const b = await request.json();
       const bands = (b.bands || []).map(s => String(s).trim()).filter(Boolean);
@@ -129,6 +132,7 @@ app.http('adminGigImage', {
   route: 'manage/gig-image',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.gigImage(request, context);   // step 3: saved in storage
     try {
       const b = await request.json();
       const gigId = parseInt(b.gigId, 10);
@@ -158,6 +162,7 @@ app.http('adminGigDelete', {
   route: 'manage/gig-delete',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.gigDelete(request, context);   // step 3: saved in storage
     try {
       const b = await request.json();
       const id = parseInt(b.id, 10);

@@ -120,3 +120,45 @@ app.http('manageDataSource', {
     } catch (err) { return fail(context, err); }
   }
 });
+
+// Step 3: where admin saves go.
+//   GET  /api/manage/write-target                      -> { target, journal, queue, copy }
+//   POST /api/manage/write-target {target: "storage"}  -> switch over: only when nothing is waiting in the queue and the
+//                                                         storage copy is newer than the last change made in SQL
+//   POST /api/manage/write-target {target: "sql"}      -> go back: every save made in storage since the switch-over is
+//                                                         put in the queue, so the next overnight run replays it into SQL
+app.http('manageWriteTarget', {
+  methods: ['GET', 'POST'],
+  authLevel: 'anonymous',
+  route: 'manage/write-target',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    const M = require('../master');
+    try {
+      const state = async () => {
+        const { m } = await M.manifest();
+        return { target: await M.target(), journal: await M.journalCount(), queue: (await store.queueList()).length,
+                 copy: { day: m.day, finishedAt: m.finishedAt, ok: m.ok, source: m.source || 'sql', rows: m.totalRows } };
+      };
+      if (request.method === 'GET') return json({ ok: true, ...(await state()) });
+      const b = await request.json().catch(() => ({}));
+      if (b.target === 'storage') {
+        const s = await state();
+        if (s.target === 'storage') return json({ ok: true, already: true, ...s });
+        if (s.queue) return json({ ok: false, error: `${s.queue} change(s) still waiting for the overnight run - switch after it has run.` }, 409);
+        if (!s.copy.ok) return json({ ok: false, error: 'The storage copy is not in a good state.' }, 409);
+        const changed = Number(await store.getStale('db-changed').catch(() => 0)) || 0;
+        if (Date.parse(s.copy.finishedAt) < changed) return json({ ok: false, error: 'Something was saved in SQL after the last copy - wait for the next overnight copy.' }, 409);
+        await cat.setSwitch('catalogue');
+        await M.setTarget('storage');
+        return json({ ok: true, switched: 'storage', ...(await state()) });
+      }
+      if (b.target === 'sql') {
+        await M.setTarget('sql');
+        const moved = await M.journalToQueue();
+        return json({ ok: true, switched: 'sql', replayTonight: moved, note: 'The saves made in storage are queued and go into SQL in the next overnight run.', ...(await state()) });
+      }
+      return json({ ok: false, error: 'Give {target: "storage" | "sql"}' }, 400);
+    } catch (err) { return fail(context, err); }
+  }
+});

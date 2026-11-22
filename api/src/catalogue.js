@@ -22,24 +22,29 @@ function container() {
 const readJson = async path => JSON.parse((await (await container()).getBlobClient(path).downloadToBuffer()).toString('utf8'));
 
 // ---------- loading ----------
-let snap = null, manifest = null, checkedAt = 0, loading = null;
-async function load({ fresh = false } = {}) {
-  if (snap && !fresh && Date.now() - checkedAt < 60000) return snap;
+// latest.json is checked on every use (one small read); the tables are only re-read when it has changed.
+let snap = null, loadedEtag = null, loading = null, checked = { at: 0, etag: null };
+function forget() { checked = { at: 0, etag: null }; }
+async function load() {
   if (loading) return loading;
   loading = (async () => {
     try {
-      const m = await readJson('master/latest.json');
-      checkedAt = Date.now();
+      const c = await container();
+      const blob = c.getBlobClient('master/latest.json');
+      let etag = checked.etag;
+      if (!etag || Date.now() - checked.at > 0) { etag = (await blob.getProperties()).etag; checked = { at: Date.now(), etag }; }
+      if (snap && loadedEtag === etag) return snap;
+      const m = JSON.parse((await blob.downloadToBuffer()).toString('utf8'));
       if (!m || !m.ok || !m.day) throw new Error('no good copy');
-      if (snap && manifest && manifest.day === m.day && manifest.finishedAt === m.finishedAt) return snap;
+      const pathOf = n => ((m.tables || []).find(t => t.table === n) || {}).path || `master/${m.day}/${n}.json.gz`;
       const t = {};
       await Promise.all(TABLES.map(async n => {
-        const buf = await (await container()).getBlobClient(`master/${m.day}/${n}.json.gz`).downloadToBuffer();
+        const buf = await c.getBlobClient(pathOf(n)).downloadToBuffer();
         t[n] = JSON.parse(zlib.gunzipSync(buf).toString('utf8')).rows;
       }));
       snap = build(t);
-      manifest = { day: m.day, finishedAt: m.finishedAt };
-      snap.manifest = manifest;
+      snap.manifest = { day: m.day, finishedAt: m.finishedAt, source: m.source || 'sql' };
+      loadedEtag = etag;
       return snap;
     } finally { loading = null; }
   })();
@@ -97,9 +102,9 @@ async function noteChange() {
 async function use(request) {
   const f = forced.get(request);
   if (f === 'sql') return null;
-  if (f !== 'catalogue' && (await switchSetting()) !== 'catalogue') return null;
+  if (f !== 'catalogue' && (await switchSetting()) !== 'catalogue' && !(await require('./master').on())) return null;
   try {
-    const s = await load({ fresh: isRunner(request) });
+    const s = await load();
     // never answer from a copy that's older than the last change to the database
     if (Date.parse(s.manifest.finishedAt) < await lastChange()) return null;
     return s;
@@ -116,4 +121,4 @@ const eqText = (a, b) => a != null && b != null && coll.compare(String(a).replac
 const ukDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date());
 const d10 = v => (v == null ? null : String(v).slice(0, 10));
 
-module.exports = { load, use, force, isForced, switchSetting, setSwitch, noteChange, sortBy, coll, cmp, eqText, ukDay, d10, isOwner };
+module.exports = { forget, load, use, force, isForced, switchSetting, setSwitch, noteChange, sortBy, coll, cmp, eqText, ukDay, d10, isOwner };

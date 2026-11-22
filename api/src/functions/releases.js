@@ -6,6 +6,8 @@ const { isOwner, isRunner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isL
 const crypto = require('crypto');
 const cat = require('../catalogue');      // step 2: answers from the storage copy when the switch is on
 const fc = require('../fromcatalogue');
+const M = require('../master');
+const S = require('../save');
 let sharpLib = null;
 function sharp() { if (!sharpLib) sharpLib = require('sharp'); return sharpLib; }
 const DAY_OK = (mcol, dcol) => `(${mcol} < MONTH(${UK_TODAY_EXPR}) OR (${mcol} = MONTH(${UK_TODAY_EXPR}) AND ${dcol} <= DAY(${UK_TODAY_EXPR})))`;
@@ -580,6 +582,7 @@ const PUZZLE_COLS = `r.ReleaseId, r.ReleaseYear, r.ReleaseType, r.Title, COALESC
             r.ReleaseMonth, r.ReleaseDay,
             (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS CoverUrl`;
 async function puzzleFor(period, { create = true } = {}) {
+  if (await M.on()) return S.puzzle(period, { create });     // step 3: the day's pick is kept in storage
   if (/-W\d\d$/.test(period)) {          // old weekly puzzles (before the switch to daily)
     const rows = await query(
       `SELECT ${PUZZLE_COLS}
@@ -817,8 +820,9 @@ app.http('report', {
   route: 'report',
   handler: async (request, context) => {
     try {
-      const row = await query(`SELECT Value FROM music.Settings WHERE Name = N'ReportKeyHash'`);
-      const want = row[0] ? Buffer.from(row[0].Value, 'hex') : null;
+      const storage = await M.on();
+      const hashNow = storage ? await S.reportKeyHash() : ((await query(`SELECT Value FROM music.Settings WHERE Name = N'ReportKeyHash'`))[0] || {}).Value;
+      const want = hashNow ? Buffer.from(hashNow, 'hex') : null;
       const got = crypto.createHash('sha256').update(request.headers.get('x-report-key') || '').digest();
       if (!want || want.length !== got.length || !crypto.timingSafeEqual(want, got)) return json({ error: 'Not allowed.' }, 403);
       let visits = null;
@@ -826,16 +830,17 @@ app.http('report', {
         const { byDay, pages, refs, clicks } = await visitData(8, 10);
         visits = { byDay, pages, refs, buttonPresses: clicks };
       } catch { visits = { unavailable: 'Visitor table not set up yet (run db/003-visits-and-permissions.sql).' }; }
-      const messages = (await query(`SELECT ReceivedAt, Name, Topic, LEFT(Body, 600) AS Body, CASE WHEN Email IS NULL OR Email = '' THEN 0 ELSE 1 END AS HasEmail
+      const fromStorage = storage ? await S.reportData() : null;
+      const messages = fromStorage ? fromStorage.messages : (await query(`SELECT ReceivedAt, Name, Topic, LEFT(Body, 600) AS Body, CASE WHEN Email IS NULL OR Email = '' THEN 0 ELSE 1 END AS HasEmail
           FROM music.Messages WHERE IsRead = 0 AND DeletedAt IS NULL ORDER BY ReceivedAt`))
         .map(m => ({ at: m.ReceivedAt, name: m.Name, topic: m.Topic, message: m.Body, hasEmail: !!m.HasEmail }));
-      const todos = (await query(`SELECT Owner, Title, Answer FROM music.Todos WHERE Done = 0 ORDER BY CreatedAt`))
+      const todos = fromStorage ? fromStorage.todos : (await query(`SELECT Owner, Title, Answer FROM music.Todos WHERE Done = 0 ORDER BY CreatedAt`))
         .map(t => ({ owner: t.Owner, title: t.Title, answer: t.Answer || '' }));
-      const additions = (await query(`SELECT COUNT(*) AS n FROM music.SiteAdditions`))[0].n;
+      const additions = fromStorage ? fromStorage.additions : (await query(`SELECT COUNT(*) AS n FROM music.SiteAdditions`))[0].n;
       let gday = ukDay(), guess = { tries: 0, correct: 0, days: 0 };
       for (let i = 0; i < 7; i++) { gday = dayBefore(gday); const t = await tallyFor(gday); guess.tries += t.tries; guess.correct += t.correct; if (t.tries) guess.days++; }
       const week = `last 7 days to ${dayBefore(ukDay())}`;
-      const [counts] = await query(`SELECT (SELECT COUNT(*) FROM music.Releases) AS Releases, (SELECT COUNT(*) FROM music.Gigs) AS Gigs`);
+      const [counts] = fromStorage ? [fromStorage.counts] : await query(`SELECT (SELECT COUNT(*) FROM music.Releases) AS Releases, (SELECT COUNT(*) FROM music.Gigs) AS Gigs`);
       return json({ generated: new Date().toISOString(), visits, unreadMessages: messages, openTodos: todos, siteAdditionsWaiting: additions, guessTheCover: { week, ...guess }, counts });
     } catch (err) { return fail(context, err); }
   }
@@ -1090,6 +1095,7 @@ app.http('adminFavourites', {
   route: 'manage/favourites',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.favourites(request, context).then(r => { favSrc = null; return r; });   // step 3: saved in storage
     try {
       const b = await request.json();
       const year = parseInt(b.year, 10);

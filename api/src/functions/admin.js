@@ -4,6 +4,8 @@ const { sql, query, json, ukDay } = require('../db');
 const store = require('../store');
 
 const { isOwner } = require('../auth');
+const M = require('../master');   // step 3: the storage master
+const S = require('../save');
 
 function mediaBaseUrl() {
   const cs = process.env.STORAGE_CONNECTION_STRING || '';
@@ -107,7 +109,7 @@ app.http('adminImport', {
         if (!r.ok) return json({ ok: false, error: 'Could not fetch ' + src + ' (' + r.status + ')' }, 400);
         rows = JSON.parse((await r.text()).replace(/^\uFEFF/, ''));
       } else rows = await readImportFile(file);
-      return json({ ok: true, file, ...(await runImport(rows, base)) });
+      return json({ ok: true, file, ...(await M.on() ? await S.importFile(rows) : await runImport(rows, base)) });
     } catch (err) {
       return failDetail(context, err);
     }
@@ -154,6 +156,7 @@ app.http('adminRelease', {
   route: 'manage/release',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.release(request, context);   // step 3: saved in storage
     try {
       const body = await request.json();
       const rows = Array.isArray(body) ? body : [body];
@@ -234,7 +237,7 @@ app.http('adminMediaDelete', {
         paths = [];
         for await (const b of mediaContainer().listBlobsFlat()) if (/\.txt$/i.test(b.name)) paths.push(b.name);
       }
-      const inUse = new Set((await query(`SELECT BlobPath FROM music.Images`)).map(r => r.BlobPath));
+      const inUse = await M.on() ? await S.imagePathsInUse() : new Set((await query(`SELECT BlobPath FROM music.Images`)).map(r => r.BlobPath));
       const c = mediaContainer();
       const result = { deleted: [], wouldDelete: [], notFound: [], keptInUse: [] };
       const listed = body.allTextFiles === true;   // names came straight from storage, so they exist
@@ -270,6 +273,7 @@ app.http('adminResetReleases', {
   route: 'manage/reset-releases',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.resetReleases(request, context);   // step 3: saved in storage
     try {
       const body = await request.json().catch(() => ({}));
       if (body.confirm !== 'DELETE ALL RELEASES') return json({ ok: false, error: 'Send { "confirm": "DELETE ALL RELEASES" }' }, 400);
@@ -338,6 +342,7 @@ app.http('adminReleaseDelete', {
   route: 'manage/release-delete',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.releaseDelete(request, context);   // step 3: saved in storage
     try {
       const b = await request.json();
       if (!b.band || !b.title || !b.date) return json({ ok: false, error: 'Give band, title and date' }, 400);
@@ -363,6 +368,7 @@ app.http('adminReleaseImages', {
   route: 'manage/release-images',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.releaseImages(request, context);   // step 3: saved in storage
     try {
       const body = await request.json();
       const rows = [];
@@ -444,6 +450,7 @@ app.http('adminMonth', {
   route: 'manage/month',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.month(request, context);   // step 3: saved in storage
     const m = parseInt(request.query.get('m'), 10);
     if (!(m >= 1 && m <= 12)) return json({ error: 'Give ?m=1..12' }, 400);
     try {
@@ -471,6 +478,7 @@ app.http('adminStatus', {
   route: 'manage/status',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.status(request, context);   // step 3: saved in storage
     try {
       const { id, colour } = await request.json();
       const c = COLOURS[colour];
@@ -504,6 +512,7 @@ app.http('adminStatusOverrides', {
   route: 'manage/status-overrides',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.statusOverrides(request, context);   // step 3: saved in storage
     try {
       if (request.method === 'GET') return json({ overrides: Object.values(await readOverrides()) });
       const ids = (request.query.get('ids') || '').split(',').map(Number).filter(Number.isInteger);
@@ -523,6 +532,7 @@ app.http('adminCharts', {
   route: 'manage/charts',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.charts(request, context);   // step 3: saved in storage
     try {
       const b = await request.json();
       const ups = (b.updates || []).filter(u => Number.isInteger(u.id) && Number.isInteger(u.pos) && u.pos >= 1 && u.pos <= 200);
@@ -557,7 +567,9 @@ app.http('adminSiteInfo', {
         if (saved) return json({ ...saved, traffic: await trafficNow().catch(() => null) });
       }
       const out = {};
-      try {
+      const fromStorage = await M.on() ? await S.siteInfoCounts() : null;
+      if (fromStorage) out.db = fromStorage.db;
+      else try {
         const t = await query(`SELECT s.name + '.' + t.name AS TableName, SUM(CASE WHEN p.index_id IN (0, 1) THEN p.row_count ELSE 0 END) AS Rows,
                                       SUM(p.reserved_page_count) * 8 AS KB
                                  FROM sys.dm_db_partition_stats p JOIN sys.tables t ON t.object_id = p.object_id JOIN sys.schemas s ON s.schema_id = t.schema_id
@@ -581,7 +593,7 @@ app.http('adminSiteInfo', {
       };
       out.media = await tally('media');
       out.import = await tally('import');
-      const [c] = await query(`SELECT (SELECT COUNT(*) FROM music.Releases) AS Releases, (SELECT COUNT(*) FROM music.Bands) AS Bands,
+      const [c] = fromStorage ? [fromStorage.counts] : await query(`SELECT (SELECT COUNT(*) FROM music.Releases) AS Releases, (SELECT COUNT(*) FROM music.Bands) AS Bands,
         (SELECT COUNT(*) FROM music.Gigs) AS Gigs, (SELECT COUNT(*) FROM music.Images) AS ImageRows,
         (SELECT COUNT(*) FROM music.Releases WHERE ChartPosition IS NOT NULL) AS Charted`);
       out.counts = c;
@@ -602,6 +614,7 @@ app.http('adminFixNames', {
   route: 'manage/fix-names',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.fixNames(request, context);   // step 3: saved in storage
     try {
       const b = await request.json();
       const titles = (b.titles || []).filter(t => Number.isInteger(t.id) && String(t.title || '').trim());
@@ -635,6 +648,7 @@ app.http('adminReleaseFix', {
   route: 'manage/release-fix',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.releaseFix(request, context);   // step 3: saved in storage
     try {
       const b = await request.json(); const done = [];
       for (const f of (b.fixes || [])) {

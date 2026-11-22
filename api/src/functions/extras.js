@@ -3,6 +3,8 @@ const crypto = require('crypto');
 const { sql, query, json, fail } = require('../db');
 const { isOwner, isRunner } = require('../auth');
 const store = require('../store');
+const M = require('../master');
+const S = require('../save');
 // Unread-message count for the admin bar, kept in Table Storage so showing it never wakes the database
 const setUnread = async () => { const r = await query(`SELECT COUNT(*) AS n FROM music.Messages WHERE IsRead = 0 AND DeletedAt IS NULL`); await store.put('meta', 'messages', 'unread', { N: r[0].n }); };
 
@@ -42,6 +44,11 @@ app.http('contact', {
       if (!isRunner(request) && await tooMany(request)) return json({ ok: false, error: 'Thanks – please try again a bit later.' }, 429);
       // During the day the message is kept safely in storage and goes into the database in the overnight run
       // (so a message doesn't wake the database). The unread count still goes up straight away.
+      if (await M.on()) {    // step 3: straight into storage (and the journal)
+        await S.contactSave({ name, email, topic, message });
+        await M.journalAdd({ route: 'contact', method: 'POST', path: '/api/contact', body: JSON.stringify({ name, email, topic, message, receivedAt: new Date().toISOString() }) }).catch(() => {});
+        return json({ ok: true });
+      }
       if (!isRunner(request)) {
         await store.queueAdd({ route: 'contact', method: 'POST', path: '/api/contact',
           body: JSON.stringify({ name, email, topic, message, receivedAt: new Date().toISOString() }) });
@@ -73,6 +80,7 @@ app.http('adminMessages', {
   route: 'manage/messages',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.messages(request, context);   // step 3: saved in storage
     try {
       if (request.method === 'POST') {
         const b = await request.json();
@@ -103,6 +111,7 @@ app.http('adminBands', {
   route: 'manage/bands',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.bandsList(request, context);   // step 3: saved in storage
     try {
       const rows = await query('SELECT Name FROM music.Bands ORDER BY Name');
       return json({ bands: rows.map(r => r.Name) });
@@ -120,6 +129,7 @@ app.http('adminSiteAdditions', {
   route: 'manage/site-additions',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.siteAdditions(request, context);   // step 3: saved in storage
     try {
       if (request.method === 'POST') {
         const e = await request.json();
@@ -154,6 +164,7 @@ app.http('adminTodos', {
   route: 'manage/todos',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.todos(request, context);   // step 3: saved in storage
     const list = async () => (await query(`SELECT * FROM music.Todos ORDER BY CreatedAt`)).map(todoOut);
     try {
       if (request.method === 'GET') return json({ todos: await list() });
@@ -193,6 +204,7 @@ app.http('adminReportKey', {
     try {
       const key = crypto.randomBytes(24).toString('hex');
       const hash = crypto.createHash('sha256').update(key).digest('hex');
+      if (await M.on()) { await S.reportKeySave(hash); return json({ ok: true, key }); }
       await query(`MERGE music.Settings AS t USING (SELECT N'ReportKeyHash' AS Name) s ON t.Name = s.Name
         WHEN MATCHED THEN UPDATE SET Value = @v, UpdatedAt = SYSUTCDATETIME()
         WHEN NOT MATCHED THEN INSERT (Name, Value, UpdatedAt) VALUES (s.Name, @v, SYSUTCDATETIME());`, { v: [sql.NVarChar(sql.MAX), hash] });
@@ -210,6 +222,7 @@ app.http('manageRemembering', {
   route: 'manage/remembering',
   handler: async (request, context) => {
     if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (await M.on()) return S.remembering(request, context);   // step 3: saved in storage
     try {
       if (request.method === 'GET') {
         const rows = await query(`SELECT * FROM music.Remembering ORDER BY DeathMonth, DeathDay`);
