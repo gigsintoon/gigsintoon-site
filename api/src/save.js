@@ -74,6 +74,7 @@ async function release(request, context) {
     for (const r of rows) {
       if (!r.band || !r.title || !/^\d{4}-\d{2}-\d{2}$/.test(r.date || '')) return json({ ok: false, error: 'Each release needs band, title and date (YYYY-MM-DD).' }, 400);
       r.type = r.type || 'Album'; r.status = r.status || 'NotPosted'; r.onSonos = !!r.onSonos;
+      if (r.chart != null && r.chart !== '') { const n = parseInt(String(r.chart).replace(/[^0-9]/g, ''), 10); r.chart = Number.isFinite(n) && n > 0 ? n : null; } else r.chart = null;
       r.images = (r.images || []).map((img, i) => { const path = cleanPath(img.path); return { kind: img.kind || 'Cover', path, urlPath: path && urlPath(path), order: img.order || i + 1 }; });
     }
     const out = await M.change(IMPORT_TABLES, t => {
