@@ -12,6 +12,8 @@ app.http('releaseLinks', {
     if (prelaunch(request)) return prelaunchResponse();
     const ids = String(request.query.get('ids') || '').split(',').map(n => parseInt(n, 10)).filter(n => n > 0).slice(0, 300);
     if (!ids.length) return json({ links: {} });
+    const snap = await require('../catalogue').use(request);
+    if (snap) return json(require('../fromcatalogue').links(snap, ids));
     const rows = await query(`SELECT ReleaseId, AppleUrl, DeezerUrl FROM music.ReleaseLinks
                                WHERE ReleaseId IN (SELECT CAST([value] AS INT) FROM OPENJSON(@ids))`,
       { ids: [sql.NVarChar(sql.MAX), JSON.stringify(ids)] }).catch(() => []);

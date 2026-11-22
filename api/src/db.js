@@ -117,10 +117,10 @@ const ADMIN_SNAPSHOT = ['manage/month', 'manage/todos', 'manage/messages', 'mana
   'manage/remembering', 'manage/site-additions', 'manage/status-overrides', 'manage/import'];
 // Admin saves that never touch the database: done straight away
 const IMMEDIATE = ['manage/upload', 'manage/upload-link', 'manage/media-copy', 'manage/rebuild', 'manage/report-key',
-  'manage/visits', 'manage/media', 'manage/unread', 'manage/queue', 'manage/nightly'];
+  'manage/visits', 'manage/media', 'manage/unread', 'manage/queue', 'manage/nightly', 'manage/data-source', 'manage/compare'];
 
 // Admin saves that don't change anything visitors see
-const NO_BUMP = ['manage/deezer-fill', 'manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key', 'manage/queue', 'manage/nightly'];
+const NO_BUMP = ['manage/data-source', 'manage/compare', 'manage/deezer-fill', 'manage/messages', 'manage/todos', 'manage/visits-import', 'manage/upload-link', 'manage/upload', 'manage/report-key', 'manage/queue', 'manage/nightly'];
 // Saves that name releases by id (release-fix, status, release-links): look up which days those releases are on
 const BY_RELEASE_ID = ['manage/release-fix', 'manage/status', 'manage/release-links'];
 // Which days ("MM-DD") a save is about, from dates in its body; null = can't tell, refresh everything
@@ -159,10 +159,12 @@ async function daysIn(request, route) {
 //  - owner admin reads come from the last overnight run; owner saves wait in a queue for the overnight run
 //    (add ?now=1 to save straight away, which wakes the database)
 const handlers = {};    // route -> wrapped handler, so the overnight run can call admin routes directly
+const rawHandlers = {}; // route -> the handler itself (for the side-by-side check, GET /api/manage/compare)
 if (!app.__gigsWrapped) {
   const orig = app.http.bind(app);
   app.http = (name, opts) => {
     const route = opts.route || name, handler = opts.handler;
+    rawHandlers[route] = handler;
     return orig(name, { ...opts, handler: handlers[route] = async (request, context) => {
       if (request.headers.get('x-report-key') && await checkRunner(request).catch(() => false)) markRunner(request, route.startsWith('manage/'));
       const runner = isRunner(request);
@@ -175,6 +177,8 @@ if (!app.__gigsWrapped) {
         }
         const days = await daysIn(request, route);
         const res = await handler(request, context);
+        // a save that reached the database: the storage copy is out of date until the next overnight copy
+        if (!IMMEDIATE.includes(route) && res && (res.status || 200) < 400) await require('./catalogue').noteChange().catch(err => context.warn('change note failed: ' + err.message));
         if (route === 'manage/report-key') await forgetRunnerKey();
         if (res && (res.status || 200) < 400 && isOwner(request) && !NO_BUMP.includes(route)) {
           await store.bumpVersion({ days }).catch(err => context.warn('version bump failed: ' + err.message));
@@ -211,4 +215,4 @@ async function runAsOwner(route, method, path, body, context) {
   return h(req, context);
 }
 
-module.exports = { sql, query, json, fail, ukDay, runAsOwner };
+module.exports = { sql, query, json, fail, ukDay, runAsOwner, rawHandlers };

@@ -1,5 +1,7 @@
 const { app } = require('@azure/functions');
 const { sql, query, json, fail } = require('../db');
+const cat = require('../catalogue');
+const fc = require('../fromcatalogue');
 const { isOwner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
 
 // GET /api/gigs/5 -> one gig with all its pictures, bill, setlist and playlist
@@ -12,6 +14,8 @@ app.http('gig', {
     const all = seesAll(request);
     try {
       const id = parseInt(request.params.id, 10);
+      const snap = await cat.use(request);
+      if (snap) { const out = fc.gig(snap, id, all); return out ? json(out) : json({ error: 'Gig not found.' }, 404); }
       const gigs = await query(
         `SELECT g.GigId, g.GigDate, YEAR(g.GigDate) AS GigYear, g.TourName, g.WriteUp, g.Status,
                 COALESCE(g.VenueAsBilled, v.Name) AS Venue, v.City, g.SetlistJson, g.SetlistUrl, g.PlaylistUrl
