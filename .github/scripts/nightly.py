@@ -1,7 +1,9 @@
 """The site's once-a-day database run (see .github/workflows/nightly.yml).
 
 1. Apply the admin saves and contact messages queued during the day.
-   Then copy every table into Azure Storage and check the copy (moving off SQL, step 1 - see api/src/functions/export.js).
+   Then copy every table into Azure Storage and check the copy (moving off SQL, step 1 - see api/src/functions/export.js),
+   and answer every public page from both SQL and the copy to check they match (step 2 - see api/src/functions/compare.js).
+   Which one the pages actually use is the switch at /api/manage/data-source.
 2. Rebuild every ready-made answer that's out of date (each day, this week, stats, band and gig pages,
    the admin lists Michael reads...), so visitors and Michael get them all day without waking the database.
 3. On Mondays, fetch the weekly report.
@@ -55,6 +57,7 @@ for it in items:
 # 1b. Moving off SQL, step 1: copy every table into Azure Storage and check each copy matches SQL.
 #     Nothing reads the copy yet; a mismatch is reported (and turns the run red) but doesn't stop the rebuild.
 export_ok = True
+copied = False
 try:
     st, raw = call('/api/nightly/export' + ('?force=1' if len(items) - failed > 0 else ''), tries=2)
     if st == 200 and json.loads(raw).get('done'):
@@ -70,6 +73,7 @@ try:
         st, raw = call('/api/nightly/export', 'POST', json.dumps({'finish': True, 'results': results}), tries=2)
         summary = json.loads(raw) if st == 200 else {'ok': False, 'error': raw[:200].decode(errors='replace')}
         export_ok = bool(summary.get('ok'))
+        copied = export_ok
         print(f"Storage copy: {'all ' + str(summary.get('tableCount')) + ' tables match' if export_ok else 'PROBLEM'} "
               f"({summary.get('totalRows', '?')} rows; missing {summary.get('missing')}, failed {summary.get('failed')})")
     else:
@@ -78,6 +82,29 @@ try:
 except Exception as e:   # never let the copy stop the rebuild
     export_ok = False
     print("Storage copy: failed -", e)
+
+# 1c. Moving off SQL, step 2: answer every public page both ways (SQL and the storage copy) and compare.
+#     Only when a fresh copy was just made (once a night). Differences are reported; they don't stop the rebuild.
+compare_ok = True
+if export_ok and copied:
+    try:
+        tally, problems, off = {'same': 0, 'order': 0, 'different': 0, 'errors': 0}, [], 0
+        while off is not None:
+            st, raw = call(f'/api/nightly/compare?all=1&offset={off}&limit=40', tries=2, timeout=230)
+            if st != 200:
+                print('Side-by-side check: failed', st, raw[:200]); compare_ok = False; break
+            r = json.loads(raw)
+            for k in tally: tally[k] += r.get(k, 0)
+            problems += [p for p in r.get('problems', []) if p.get('result') != 'order']
+            off = r.get('next')
+        print(f"Side-by-side check (SQL vs storage copy): {tally['same']} same, {tally['order']} same apart from order, "
+              f"{tally['different']} different, {tally['errors']} errors")
+        for p in problems[:15]:
+            print('  ', p.get('path'), p.get('result'), json.dumps(p.get('diffs') or p.get('error'))[:400])
+        compare_ok = compare_ok and tally['different'] == 0 and tally['errors'] == 0
+    except Exception as e:
+        compare_ok = False
+        print('Side-by-side check: failed -', e)
 
 # 2. Rebuild everything
 y, m, d = uk.year, uk.month, uk.day

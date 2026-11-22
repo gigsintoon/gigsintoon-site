@@ -67,6 +67,20 @@ app.http('nightlyUrls', {
       // GitHub sometimes starts the run late, so it's scheduled several times: only the first one each day does this
       if (request.query.get('force') !== '1' && await store.getStale('nightly-done').catch(() => null) === ukDay())
         return json({ skipped: true, urls: [] });
+      const snap = await require('../catalogue').use(request);
+      if (snap) {      // step 2: everything from the storage copy (doesn't wake the database)
+        const fc = require('../fromcatalogue');
+        const t = fc.teaserMap(snap), lists = fc.pageLists(snap);
+        await store.setCached('teasermap', 'm', t.map);
+        const urls = new Set(await store.cachedUrls());
+        lists.bands.forEach(id => urls.add(`/api/bands/${id}`));
+        lists.gigs.forEach(id => urls.add(`/api/gigs/${id}`));
+        lists.years.forEach(y => urls.add(`/api/years/${y}`));
+        for (let m = 1; m <= 12; m++) urls.add(`/api/manage/month?m=${m}`);
+        ['todos', 'messages', 'bands', 'site-info', 'remembering', 'site-additions', 'status-overrides'].forEach(a => urls.add(`/api/manage/${a}`));
+        await store.setCached('nightly-done', 'd', ukDay()).catch(() => {});
+        return json({ teasers: t.count, source: 'catalogue', urls: [...urls].filter(u => u && u.startsWith('/api/')) });
+      }
       // Addresses of covers and gig tickets, for the blurred teasers (so they never need the database in the day)
       const imgs = await query(`
         SELECT 'r' AS K, x.ReleaseId AS Id, x.PublicUrl FROM (

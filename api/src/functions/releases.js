@@ -4,6 +4,8 @@ const store = require('../store');
 const { buildHandleMap, handlesFor, norm } = require('../handles');
 const { isOwner, isRunner, seesAll, prelaunch, prelaunchResponse, LAUNCH_AT, isLive } = require('../auth');
 const crypto = require('crypto');
+const cat = require('../catalogue');      // step 2: answers from the storage copy when the switch is on
+const fc = require('../fromcatalogue');
 let sharpLib = null;
 function sharp() { if (!sharpLib) sharpLib = require('sharp'); return sharpLib; }
 const DAY_OK = (mcol, dcol) => `(${mcol} < MONTH(${UK_TODAY_EXPR}) OR (${mcol} = MONTH(${UK_TODAY_EXPR}) AND ${dcol} <= DAY(${UK_TODAY_EXPR})))`;
@@ -105,6 +107,8 @@ app.http('onThisDay', {
     }
     const all = seesAll(request);
     try {
+      const snap = await cat.use(request);
+      if (snap) return json(fc.onThisDay(snap, month, day, all));
       const releases = tidy(await query(
         `SELECT ${RELEASE_COLUMNS}
            FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
@@ -166,12 +170,16 @@ app.http('searchBands', {
     const all = seesAll(request);
     if (request.query.get('all') === '1') {   // every band a visitor can see, for searching in the browser
       try {
+        const snap = await cat.use(request);
+        if (snap) return json(fc.searchAll(snap));
         return json({ bands: await query(`SELECT b.BandId, b.Name, COUNT(*) AS ReleaseCount FROM music.Bands b
           JOIN music.Releases r ON r.BandId = b.BandId WHERE ${VISIBLE} GROUP BY b.BandId, b.Name ORDER BY b.Name`) });
       } catch (err) { return fail(context, err); }
     }
     if (q.length < 2) return json({ bands: [] });
     try {
+      const snap = await cat.use(request);
+      if (snap) return json(fc.search(snap, q, all));
       const bands = await query(
         `SELECT TOP 50 * FROM (
            SELECT b.BandId, b.Name,
@@ -198,6 +206,8 @@ app.http('band', {
     const id = parseInt(request.params.id, 10);
     const all = seesAll(request);
     try {
+      const snap = await cat.use(request);
+      if (snap) { const out = fc.band(snap, id, all); return out ? json(out) : json({ error: 'Band not found.' }, 404); }
       const bands = await query(
         `SELECT BandId, Name, XHandle, InstagramHandle, BlueskyHandle, Hashtag, NeverPost
            FROM music.Bands WHERE BandId = @id`, { id: [sql.Int, id] });
@@ -236,6 +246,8 @@ app.http('favourites', {
   handler: async (request, context) => {
     if (prelaunch(request)) return prelaunchResponse();
     try {
+      const snap = await cat.use(request);
+      if (snap) return json(fc.favourites(snap, isOwner(request)));
       if (!favCache || Date.now() - favCacheAt > 10 * 60 * 1000) {
         const rows = await query(
           `SELECT b.BandId, b.Name, r.Title, r.ReleaseYear,
@@ -280,9 +292,11 @@ app.http('favourites', {
 // The picture behind a teaser, looked up once and kept until something is saved (so blurred covers
 // on day pages and in Guess the Cover don't wake the database for every visitor).
 // The overnight run saves every cover/ticket address in one list (teasermap); anything newer is looked up once.
-async function teaserUrl(kind, id, sqlText) {
+async function teaserUrl(kind, id, sqlText, request) {
   const map = await store.getStale('teasermap').catch(() => undefined);
   if (map && map[kind] && map[kind][id]) return map[kind][id];
+  const snap = request ? await cat.use(request) : null;
+  if (snap) return fc.teaserUrl(snap, kind, id);
   const k = `teaserurl-${kind}-${id}`;
   const have = await store.getStale(k).catch(() => undefined);
   if (have !== undefined) return have || null;
@@ -302,7 +316,7 @@ app.http('teaser', {
     try {
       const url = await teaserUrl('r', parseInt(request.params.id, 10),
         `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Releases r ON r.ReleaseId = i.ReleaseId
-          WHERE r.ReleaseId = @id AND r.Status <> 'DoNotPost' ORDER BY i.SortOrder, i.ImageId`);
+          WHERE r.ReleaseId = @id AND r.Status <> 'DoNotPost' ORDER BY i.SortOrder, i.ImageId`, request);
       if (!url) return { status: 404 };
       const rows = [{ PublicUrl: url }];
       const b = Math.max(0, Math.min(40, parseFloat(request.query.get('b') ?? '12') || 0));
@@ -324,7 +338,7 @@ app.http('gigTeaser', {
     try {
       const url = await teaserUrl('g', parseInt(request.params.id, 10),
         `SELECT TOP 1 i.PublicUrl FROM music.Images i JOIN music.Gigs g ON g.GigId = i.GigId
-          WHERE g.GigId = @id AND g.Status = 'Posted' ORDER BY i.SortOrder, i.ImageId`);
+          WHERE g.GigId = @id AND g.Status = 'Posted' ORDER BY i.SortOrder, i.ImageId`, request);
       if (!url) return { status: 404 };
       const rows = [{ PublicUrl: url }];
       const b = Math.max(0, Math.min(40, parseFloat(request.query.get('b') ?? '12') || 0));
@@ -447,7 +461,9 @@ app.http('randomRelease', {
       if (!pool && !isRunner(request)) pool = await store.getStale('randompool');
       if (!pool) {
         try {
-          pool = (await query(`SELECT r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day
+          const snap = await cat.use(request);
+          if (snap) pool = fc.randomPool(snap);
+          else pool = (await query(`SELECT r.ReleaseId, r.ReleaseMonth AS Month, r.ReleaseDay AS Day
                FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
               WHERE ${VISIBLE} AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)`)).map(r => [r.ReleaseId, r.Month, r.Day]);
           await store.setCached('randompool', stamp, pool).catch(() => {});
@@ -472,6 +488,8 @@ app.http('years', {
     const all = seesAll(request);
     try {
       const year = parseInt(request.params.year, 10);
+      const snap = await cat.use(request);
+      if (snap) return json(year ? fc.year(snap, year, all) : fc.yearsList(snap, all));
       if (!year) {
         const years = await query(
           `SELECT y, SUM(rel) AS Releases, SUM(gig) AS Gigs FROM (
@@ -507,6 +525,8 @@ app.http('stats', {
   handler: async (request, context) => {
     if (prelaunch(request)) return prelaunchResponse();
     try {
+      const snap = await cat.use(request);
+      if (snap) return json(fc.stats(snap));
       if (statsCache && Date.now() - statsAt < 30 * 60 * 1000) return json(statsCache);
       const V = `FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE ${VISIBLE}`;
       const [tot] = await query(`SELECT COUNT(*) AS Releases, COUNT(DISTINCT r.BandId) AS Bands, MIN(r.ReleaseYear) AS FirstYear ${V}`);
@@ -770,7 +790,9 @@ app.http('sitemap', {
   handler: async (request, context) => {
     try {
       const base = 'https://www.gigsintoon.co.uk';
-      const urls = ['/', '/about', '/contact', '/?page=favourites', '/?page=week', '/?page=stats', '/?page=guess'];
+      const snap = await cat.use(request);
+      const urls = snap ? fc.sitemapUrls(snap) : ['/', '/about', '/contact', '/?page=favourites', '/?page=week', '/?page=stats', '/?page=guess'];
+      if (!snap) {
       for (let m = 1; m <= 12; m++) for (let d = 1; d <= new Date(Date.UTC(2024, m, 0)).getUTCDate(); d++)
         urls.push(`/?date=${String(m).padStart(2, '0')}-${String(d).padStart(2, '0')}`);
       const bands = await query(`SELECT DISTINCT r.BandId FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE ${VISIBLE}`);
@@ -779,6 +801,7 @@ app.http('sitemap', {
       gigs.forEach(g => urls.push(`/?gig=${g.GigId}`));
       const years = await query(`SELECT DISTINCT r.ReleaseYear AS Y FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE ${VISIBLE}`);
       years.forEach(y => urls.push(`/?year=${y.Y}`));
+      }
       const xml = `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +
         urls.map(u => `  <url><loc>${base}${u.replace(/&/g, '&amp;')}</loc></url>`).join('\n') + '\n</urlset>\n';
       return { status: 200, body: xml, headers: { 'Content-Type': 'application/xml; charset=utf-8', 'Cache-Control': 'public, max-age=3600' } };
@@ -829,6 +852,8 @@ app.http('venue', {
     const name = String(request.query.get('name') || '').trim().slice(0, 200);
     if (!name) return json({ error: 'Which venue?' }, 400);
     try {
+      const snap = await cat.use(request);
+      if (snap) return json(fc.venue(snap, name, all));
       const gigs = await query(
         `SELECT ${GIG_COLS}, v.City FROM music.Gigs g LEFT JOIN music.Venues v ON v.VenueId = g.VenueId
           WHERE ${VENUE_NORM} = LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(@n, ' Students'' Union', ''), ' Students’ Union', ''), ' Newcastle', '')))
@@ -865,13 +890,15 @@ app.http('roundup', {
       }
     } catch (e) { context.warn('roundup cache read failed: ' + e.message); }
     try {
-      const rows = await query(
+      const snap = await cat.use(request);
+      const fromCopy = snap ? fc.roundup(snap, month, day) : null;
+      const rows = fromCopy ? fromCopy.rows : await query(
         `SELECT TOP 36 (SELECT TOP 1 i.PublicUrl FROM music.Images i WHERE i.ReleaseId = r.ReleaseId ORDER BY i.SortOrder, i.ImageId) AS Url
            FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId
           WHERE r.ReleaseMonth = @m AND r.ReleaseDay = @d AND ${VISIBLE}
             AND EXISTS (SELECT 1 FROM music.Images i WHERE i.ReleaseId = r.ReleaseId)
           ORDER BY r.ReleaseYear DESC`, { m: [sql.Int, month], d: [sql.Int, day] });
-      const [{ N }] = await query(`SELECT COUNT(*) AS N FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE r.ReleaseMonth = @m AND r.ReleaseDay = @d AND ${VISIBLE}`,
+      const [{ N }] = fromCopy ? [{ N: fromCopy.N }] : await query(`SELECT COUNT(*) AS N FROM music.Releases r JOIN music.Bands b ON b.BandId = r.BandId WHERE r.ReleaseMonth = @m AND r.ReleaseDay = @d AND ${VISIBLE}`,
         { m: [sql.Int, month], d: [sql.Int, day] });
       if (!rows.length) return { status: 404 };
       const S = 1080, head = 150, foot = 70;
@@ -991,8 +1018,10 @@ app.http('week', {
     const today = new Date(new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(new Date()));
     const key = (all ? 'a' : 'v') + today.toISOString().slice(0, 10);
     const hit = weekCache.get(key);
-    if (hit && Date.now() - hit.at < 5 * 60 * 1000) return json(hit.data);
+    if (hit && Date.now() - hit.at < 5 * 60 * 1000 && !cat.isForced(request)) return json(hit.data);
     try {
+      const snap = await cat.use(request);
+      if (snap) return json(fc.week(snap, all));
       const days = [...Array(7)].map((_, i) => { const d = new Date(today.getTime() + i * 86400000); return { m: d.getUTCMonth() + 1, d: d.getUTCDate() }; });
       const D = [sql.NVarChar(sql.MAX), JSON.stringify(days)];
       const rel = await query(
