@@ -260,6 +260,19 @@ function nav(url) {
   else history.pushState({ n: ((history.state && history.state.n) || 0) + 1 }, '', url);
 }
 function routeNow() { routing = true; try { route(); } finally { routing = false; } }
+
+// Each view gets its own title, description and canonical address, so search engines list the
+// day, band, gig and year pages separately (before 25 Nov 2026 every page said it was a copy of the home page).
+// Someone landing on the bare home page keeps the home page's own title and canonical.
+let homeLanding = location.pathname === '/' && !location.search;
+function setMeta(title, desc) {
+  const home = homeLanding; homeLanding = false;
+  document.title = title && !home ? `${title} – Gigs in toon` : 'Gigs in toon – On This Day';
+  const d = document.querySelector('meta[name="description"]');
+  if (d && desc && !home) d.setAttribute('content', desc);
+  const c = document.querySelector('link[rel="canonical"]');
+  if (c) c.setAttribute('href', 'https://www.gigsintoon.co.uk' + (home ? '/' : location.pathname + location.search));
+}
 window.addEventListener('popstate', routeNow);
 // In-page "Back": a step back within the site if there is one, otherwise today's page
 function goBack() { if (history.state && history.state.n > 0) history.back(); else { routing = false; showDay(ukToday()); } }
@@ -276,6 +289,9 @@ async function showGig(id) {
     const pics = g.Images.map((i, n) => `<figure><button class="pic" data-pic="${n}" aria-label="View larger"><img src="${esc(i.Url)}" alt="${esc(i.AltText || i.Kind)}" loading="lazy"></button>
       ${isAdmin && !asVisitor ? `<button class="ghost picx" data-picx="${esc(i.Url)}" title="Remove this photo">✕</button>` : ''}</figure>`).join('');
     window.__gigPics = g.Images.map(i => i.Url);
+    const names = g.Bands.map(b => b.Name);
+    setMeta(`${names.join(' + ')} at ${g.Venue}, ${when}`,
+      `Gig memory: ${names.join(' + ')} at ${[g.Venue, g.City].filter(Boolean).join(', ')} on ${when}${g.TourName ? ` (${g.TourName})` : ''} – photos, setlist and memories.`);
     const sets = (g.Setlist || []).map(s => `<div class="set"><h3>${esc(s.band)}</h3><ol>${(s.songs || []).map(x => `<li>${esc(x)}</li>`).join('')}</ol></div>`).join('');
     $('gigBody').innerHTML = `
       <div class="year">Gig memory · ${esc(when)}</div>
@@ -370,6 +386,11 @@ async function showDay(date) {
     const viewYear = today.getUTCFullYear();
     const isToday = m === today.getUTCMonth() + 1 && d === today.getUTCDate();
     const nNew = data.releases.filter(r => r.ReleaseYear === viewYear).length;
+    const label = `${ordinal(d)} ${MONTHS[m - 1]}`;
+    const eg = data.releases.slice(0, 3).map(r => `${r.Title} by ${r.Artist} (${r.ReleaseYear})`);
+    setMeta(`Albums and singles released on ${label}`,
+      n ? `Music released on ${label}: ${n} release${n === 1 ? '' : 's'}, including ${eg.join(', ')}. Plus gig memories from the North East.`
+        : `Music released on ${label}, and gig memories from the North East.`);
     $('daySummary').textContent = n
       ? `${n} release${n === 1 ? '' : 's'} on this day` + (nNew ? ` · ${nNew} new this year` : '')
       : '';
@@ -403,6 +424,8 @@ async function showBand(id) {
     const { band, releases, gigs: bandGigs = [], handles: h } = await api(`bands/${id}`);
     handles = h || {};
     $('bandName').textContent = band.Name;
+    setMeta(`${band.Name}: release dates and gigs`,
+      `${band.Name} release history: ${releases.length} album${releases.length === 1 ? '' : 's'} and singles with release dates${bandGigs.length ? `, plus ${bandGigs.length} gig memor${bandGigs.length === 1 ? 'y' : 'ies'}` : ''}.`);
     $('bandHandles').textContent = [band.XHandle && `X ${band.XHandle}`, band.InstagramHandle && `Instagram ${band.InstagramHandle}`,
       band.BlueskyHandle && `Bluesky ${band.BlueskyHandle}`, `${releases.length} release${releases.length === 1 ? '' : 's'}`]
       .filter(Boolean).join(' · ');
@@ -422,6 +445,8 @@ async function showYear(year) {
   try {
     const { years } = await api('years');
     $('yearList').innerHTML = years.map(y => `<button type="button" class="yearbtn${String(y.year) === String(year) ? ' on' : ''}" data-year="${y.year}">${y.year}</button>`).join('');
+    setMeta(year ? `Albums and singles released in ${year}` : 'Browse music by year',
+      year ? `Music released in ${year}: albums and singles from my collection, with release dates, plus gigs from that year.` : 'Browse albums, singles and gig memories by year.');
     if (!year) { $('yearTitle').textContent = 'Browse by year'; $('yearSummary').textContent = 'Pick a year.'; $('yearBody').innerHTML = ''; $('yearGigs').innerHTML = ''; return; }
     $('yearTitle').textContent = year; $('yearSummary').textContent = 'Loading…'; $('yearBody').innerHTML = ''; $('yearGigs').innerHTML = '';
     const data = await api(`years/${year}`);
@@ -445,6 +470,7 @@ async function showVenue(name) {
   try {
     const v = await api(`venue?name=${encodeURIComponent(name)}`);
     $('venueTitle').textContent = v.venue;
+    setMeta(`Gigs at ${v.venue}`, `Gig memories from ${v.venue}${v.city ? ', ' + v.city : ''}: ${v.gigs.length} gig${v.gigs.length === 1 ? '' : 's'} with photos and setlists.`);
     $('venueBody').innerHTML = `<p class="muted">${v.gigs.length} gig${v.gigs.length === 1 ? '' : 's'}${v.city ? ' · ' + esc(v.city) : ''} · still adding more</p>`
       + (v.gigs.map(gigCardDated).join('') || '<p class="empty">No gigs here yet.</p>');
   } catch (e) { $('venueBody').innerHTML = `<p class="muted">${esc(e.message)}</p>`; }
@@ -454,6 +480,7 @@ async function showVenue(name) {
 async function showWeek() {
   showOnly('weekView');
   nav('/?page=week');
+  setMeta('This week in music history', 'Albums and singles released this week in years gone by, day by day, plus gig memories.');
   $('weekBody').innerHTML = '<p class="muted">Loading…</p>';
   try {
     const { days } = await api('week');
@@ -479,6 +506,7 @@ function bars(rows, label, val = 'N', link) {
 async function showStats() {
   showOnly('statsView');
   nav('/?page=stats');
+  setMeta('Stats', 'Numbers from a lifetime of music: releases, bands, years and gigs.');
   try {
     const s = await api('stats');
     const t = s.totals;
@@ -509,6 +537,7 @@ const MONTH_NAMES = MONTHS;
 async function showGuess() {
   showOnly('guessView');
   nav('/?page=guess');
+  setMeta('Guess the Cover', 'A daily music quiz: guess the album from a blurred cover.');
   try {
     const g = await api('guess');
     const daily = window._guessDaily = !/-W\d/.test(g.week || '');            // weekly until 15 Nov 2026, daily after
@@ -609,6 +638,7 @@ document.addEventListener('click', async e => {
 async function showFavourites(year) {
   showOnly('favView');
   nav(year ? `/?page=favourites&year=${year}` : '/?page=favourites');
+  setMeta(year ? `Albums of the year ${year}` : 'Albums of the year', 'My favourite albums of each year, ranked.');
   $('favBody').innerHTML = '<p class="muted">Loading…</p>';
   try {
     const fav = await api('favourites');
@@ -820,8 +850,13 @@ function countClick(name) {
 }
 function countVisit(as) {
   try {
+    // Arriving through a short link from a post (/day/11-24, /gig/150, /band/701): that page hands on the address
+    // clicked and the site the visitor came from (X, Bluesky...), which the jump to this page would otherwise lose.
+    let land = null;
+    try { land = JSON.parse(sessionStorage.getItem('landing') || 'null'); sessionStorage.removeItem('landing'); } catch { land = null; }
+    if (!land || !/^\/(day|gig|band)\/[\w-]{1,10}$/.test(land.p || '') || Date.now() - (land.t || 0) > 60000) land = null;
     fetch('/api/hit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-      body: JSON.stringify({ path: as || location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: document.referrer,
+      body: JSON.stringify({ path: as || (land && land.p) || location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: land ? land.r : document.referrer,
         tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') }) });
   } catch { /* ignore */ }
 }

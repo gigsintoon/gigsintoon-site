@@ -90,7 +90,7 @@ ${image === DEFAULT_IMG ? '<meta property="og:image:width" content="1200"><meta 
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <style>body{font:16px system-ui,sans-serif;background:#111;color:#eee;display:grid;place-items:center;min-height:90vh}a{color:#f5b041}</style>
 </head><body><p><a href="${to}">${esc(title)}</a></p>
-<script>location.replace(${JSON.stringify(c.target || '/')});</script></body></html>`;
+<script>try{sessionStorage.setItem('landing',JSON.stringify({p:location.pathname,r:document.referrer,t:Date.now()}))}catch(e){}location.replace(${JSON.stringify(c.target || '/')});</script></body></html>`;
 }
 
 app.http('share', {
