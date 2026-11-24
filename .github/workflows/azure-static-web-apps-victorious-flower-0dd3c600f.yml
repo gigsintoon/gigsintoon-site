@@ -11,7 +11,9 @@ on:
 
 jobs:
   build_and_deploy_job:
-    if: github.event_name == 'push' || (github.event_name == 'pull_request' && github.event.action != 'closed')
+    # Only deploy the live site from main. Pull-request preview copies are switched off: Azure's preview
+    # slots are full, so they always failed and sent error emails (24 Nov 2026).
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     name: Build and Deploy Job
     steps:
