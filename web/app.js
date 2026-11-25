@@ -68,7 +68,7 @@ function countVisit(as) {
     try { land = JSON.parse(sessionStorage.getItem('landing') || 'null'); sessionStorage.removeItem('landing'); } catch { land = null; }
     if (!land || !/^\/(day|gig|band)\/[\w-]{1,10}$/.test(land.p || '') || Date.now() - (land.t || 0) > 60000) land = null;
     fetch('/api/hit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, keepalive: true,
-      body: JSON.stringify({ path: as || (land && land.p) || location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: land ? land.r : document.referrer,
+      body: JSON.stringify({ path: as || (land && land.p) || location.pathname + (location.search.startsWith('?page=') ? location.search : ''), ref: viaDomain ? 'https://' + viaDomain + '/' : land ? land.r : document.referrer,
         tz: (Intl.DateTimeFormat().resolvedOptions().timeZone || '') }) });
   } catch { /* ignore */ }
 }

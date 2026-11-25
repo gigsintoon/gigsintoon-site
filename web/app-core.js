@@ -7,6 +7,14 @@ const STATUS_LABEL = { NotPosted: 'Not posted', Drafted: 'Drafted', Posted: 'Pos
 
 let current = ukToday();
 let isAdmin = false;                                   // signed in as owner
+// Visitors who typed gigsintoon.com or gigsintoon.net arrive via 123-reg's forwarding as /?via=com or /?via=net.
+// Note which domain it was for the visit counter, then tidy the address so the page looks (and is indexed) as normal.
+const viaDomain = (() => {
+  const v = new URLSearchParams(location.search).get('via');
+  if (!v) return '';
+  try { const u = new URL(location.href); u.searchParams.delete('via'); history.replaceState(history.state, '', u.pathname + u.search + u.hash); } catch { /* ignore */ }
+  return /^(com|net)$/.test(v) ? 'gigsintoon.' + v : '';
+})();
 const params = new URLSearchParams(location.search);
 let asVisitor = sessionStorageGet('asVisitor') === '1'; // owner previewing the public view
 
