@@ -74,6 +74,7 @@ function drawVote() {
           <div class="track"><i style="width:${r.pct}%" class="${me || lead ? 'mine' : ''}"></i></div></div></div>`; }).join('')}</div>
         <p class="muted small">${d.open ? 'The winner is announced on Saturday at 6pm.' : 'A new vote opens on Monday – it could be albums, singles or EPs from any year.'}</p>`;
     }
+    html += `<h2 class="voteh">This week's ${esc(w[1])}</h2><p class="muted small" style="margin-top:-4px">Tap a cover to read about it.</p><div class="votegrid">${d.entries.map(x => voteCard(x, w)).join('')}</div>`;
     if (d.open) html += `<div class="voteshare"><div class="t">Get your mates voting</div><div class="row">
       <a href="https://x.com/intent/post?text=${encodeURIComponent(`I've voted in this week's Gigs in toon vote – ${w[1]} of ${d.year}. Pick yours 👉 https://www.gigsintoon.co.uk/?page=vote`)}" target="_blank" rel="noopener">X</a>
       <a href="https://bsky.app/intent/compose?text=${encodeURIComponent(`I've voted in this week's Gigs in toon vote – ${w[1]} of ${d.year}. Pick yours 👉 https://www.gigsintoon.co.uk/?page=vote`)}" target="_blank" rel="noopener">Bluesky</a>
@@ -89,9 +90,11 @@ function drawVote() {
 }
 
 function voteCard(x, w) {
-  const sel = votePick === x.ReleaseId, open = voteOpen === x.ReleaseId;
+  const canPick = voteData.open && voteData.voted == null;
+  const sel = (canPick ? votePick : voteData.voted) === x.ReleaseId, open = voteOpen === x.ReleaseId;
   return `<div class="votecard${sel ? ' sel' : ''}${open ? ' open' : ''}">
-    <button type="button" class="votepick" data-vpick="${x.ReleaseId}" aria-pressed="${sel}" aria-label="Pick ${esc(x.Title)} by ${esc(x.Artist)}">
+    ${canPick ? `<button type="button" class="votepick" data-vpick="${x.ReleaseId}" aria-pressed="${sel}" aria-label="Pick ${esc(x.Title)} by ${esc(x.Artist)}">`
+      : `<button type="button" class="votepick" data-vinfo="${x.ReleaseId}" aria-label="About ${esc(x.Title)} by ${esc(x.Artist)}">`}
       <span class="vc"><img src="${esc(x.CoverUrl)}" alt="Cover of ${esc(x.Title)} by ${esc(x.Artist)}" loading="lazy">${sel ? '<span class="tick">✓</span>' : ''}</span>
       <span class="vt">${esc(x.Title)}</span><span class="va">${esc(x.Artist)}</span>
       <span class="vm">${esc(voteDate(x))}${x.ChartPosition ? ' · UK No ' + x.ChartPosition : ''}</span>
@@ -155,7 +158,7 @@ document.addEventListener('click', async e => {
         body: JSON.stringify({ id: votePick, token: voteToken() }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Your vote could not be sent.');
-      voteData = d; saveVoteToken(d.token); countClick('vote');
+      voteData = d; votePick = d.voted; saveVoteToken(d.token); countClick('vote');
       drawVote(); loadPastVotes(); window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
       e.target.disabled = false; e.target.textContent = 'Try again';
