@@ -49,6 +49,7 @@ function route() {
   else if (p.get('venue')) showVenue(p.get('venue'));
   else if (p.get('page') === 'guess') showGuess();
   else if (p.get('page') === 'surprise') showSurprise();
+  else if (p.get('page') === 'vote') showVote();   // hidden until the vote is switched on (not in the menu yet)
   else if (/^\d{2}-\d{2}$/.test(p.get('date') || '')) {
     const [mm, dd] = p.get('date').split('-').map(Number);
     showDay(new Date(Date.UTC(ukToday().getUTCFullYear(), mm - 1, dd)));
