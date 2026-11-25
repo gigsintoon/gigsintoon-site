@@ -39,29 +39,14 @@
     </form>
     <p class="muted" style="font-size:14px">Your message and any details you give are stored securely and only used to reply to you. See <a href="/privacy">Privacy &amp; cookies</a>.</p>
   </main>
-  <script>
-    document.getElementById('cform').addEventListener('submit', async e => {
-      e.preventDefault();
-      const f = e.target, st = document.getElementById('cstatus'), btn = f.querySelector('button');
-      const body = Object.fromEntries(new FormData(f));
-      if ((body.message || '').trim().length < 5) { st.textContent = 'Please write a message.'; return; }
-      btn.disabled = true; st.textContent = 'Sending…';
-      try {
-        const r = await fetch('/api/contact', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-        const j = await r.json().catch(() => ({}));
-        if (r.ok && j.ok) { f.reset(); st.textContent = 'Thanks – your message has been sent.'; }
-        else st.textContent = j.error || 'Sorry, that didn’t send. Please try again.';
-      } catch { st.textContent = 'Sorry, that didn’t send. Please try again.'; }
-      btn.disabled = false;
-    });
-  </script>
+  <script src="/contact.js?v=20261125"></script>
   <footer class="foot"><div class="wrap">
     <span>© <span id="yr">2026</span> Gigs in toon</span>
     <a href="/about">About</a><a href="/privacy">Privacy &amp; cookies</a>
     <a href="https://x.com/gigsintoon" rel="noopener">X</a><a href="https://www.instagram.com/gigsintoon" rel="noopener">Instagram</a><a href="https://bsky.app/profile/gigsintoon.bsky.social" rel="noopener">Bluesky</a><a href="https://www.youtube.com/@michaelboyle3064" rel="noopener">YouTube</a>
   </div></footer>
-  <script>document.getElementById('yr').textContent = new Date().getFullYear();</script>
-<script>try{fetch("/api/hit",{method:"POST",headers:{"Content-Type":"application/json"},keepalive:true,body:JSON.stringify({path:location.pathname,ref:document.referrer,tz:(Intl.DateTimeFormat().resolvedOptions().timeZone||"")})})}catch(e){}</script>
+  <script src="/page.js?v=20261125"></script>
+
   <script src="/protect.js?v=1" defer></script>
 </body>
 </html>
