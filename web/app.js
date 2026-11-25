@@ -179,7 +179,7 @@ function gigCard(g) {
       <strong>${esc(g.Bands || '')}</strong>${g.Venue ? ` at <button class="bandlink" data-venue="${esc(g.Venue)}">${esc(g.Venue)}</button>` : ''}
       ${g.TourName ? `<div class="meta">${esc(g.TourName)}</div>` : ''}
       ${g.WriteUp ? `<div class="writeup">${renderWriteUp(shortText(g.WriteUp))}${g.WriteUp.length > SHORT ? ' <span class="more">Read more ›</span>' : ''}</div>` : ''}
-      ${g.PlaylistUrl ? `<p class="gplay"><a href="${esc(g.PlaylistUrl)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">🎧 Listen to the setlist on Deezer</a></p>` : ''}</div>
+      ${g.PlaylistUrl ? `<p class="gplay"><a href="${esc(g.PlaylistUrl)}" target="_blank" rel="noopener">🎧 Listen to the setlist on Deezer</a></p>` : ''}</div>
   </div>`;
 }
 
@@ -706,6 +706,7 @@ $('searchBox').addEventListener('input', () => {
 });
 $('searchForm').addEventListener('submit', e => { e.preventDefault(); const b = $('searchResults').querySelector('button'); if (b) b.click(); });
 document.addEventListener('click', e => {
+  if (e.target.closest('.gplay a')) return;   // the Deezer link on a gig card opens Deezer, not the gig
   const tab = e.target.closest('.cdtab');
   if (tab) {
     const cover = tab.closest('.cover');
@@ -783,6 +784,8 @@ $('nextDay').onclick = () => showDay(addDays(current, 1));
 $('todayBtn').onclick = () => showDay(ukToday());
 $('datePick').onchange = () => { const v = $('datePick').value; if (v) showDay(new Date(v + 'T00:00:00Z')); };
 $('backBtn').onclick = goBack;
+document.querySelectorAll('[data-back]').forEach(b => { b.onclick = goBack; });
+{ const yr = document.getElementById('yr'); if (yr) yr.textContent = new Date().getFullYear(); }
 $('navDay').onclick = e => { e.preventDefault(); showDay(current); };
 $('navFav').onclick = e => { e.preventDefault(); showFavourites(); };
 // Years page hidden from the menu for now (to-do: streamline it); ?page=years still works
