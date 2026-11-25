@@ -128,6 +128,7 @@ document.addEventListener('click', async e => {
   const pick = e.target.closest('[data-vpick]'), info = e.target.closest('[data-vinfo]');
   if (pick && voteData.open && voteData.voted == null) { votePick = Number(pick.dataset.vpick); drawVote(); loadPastVotes(); return; }
   if (info) { const id = Number(info.dataset.vinfo); voteOpen = voteOpen === id ? null : id; drawVote(); loadPastVotes(); return; }
+  if (voteOpen != null && !e.target.closest('.votecard.open')) { voteOpen = null; drawVote(); loadPastVotes(); }   // tap elsewhere to close, as in Covers only
   if (e.target.id === 'voteCopy') {
     try { await navigator.clipboard.writeText('https://www.gigsintoon.co.uk/?page=vote'); e.target.textContent = 'Copied ✓'; } catch { /* ignore */ }
     return;
