@@ -60,6 +60,14 @@ async function loadVisits(days = 30, attempt = 1) {
     $('visitRetry').onclick = () => loadVisits(days);
   }
 }
-$('range').addEventListener('click', e => { const b = e.target.closest('[data-d]'); if (!b) return;
-  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('on', x === b)); loadVisits(+b.dataset.d); });
-loadVisits();
+// The chosen period (7 days, 30 days…) is remembered on this browser for next time
+function pickRange(d) {
+  const b = document.querySelector(`#range [data-d="${d}"]`) || document.querySelector('#range [data-d="30"]');
+  document.querySelectorAll('#range button').forEach(x => x.classList.toggle('on', x === b));
+  try { localStorage.setItem('visitorsRange', b.dataset.d); } catch { /* ignore */ }
+  loadVisits(+b.dataset.d);
+}
+$('range').addEventListener('click', e => { const b = e.target.closest('[data-d]'); if (b) pickRange(b.dataset.d); });
+let savedRange = '30';
+try { savedRange = localStorage.getItem('visitorsRange') || '30'; } catch { /* ignore */ }
+pickRange(savedRange);
