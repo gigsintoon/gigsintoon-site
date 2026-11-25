@@ -285,5 +285,5 @@ function roundup(s, month, day) {
   return { rows: V.filter(r => (s.imgRel.get(r.ReleaseId) || []).length).slice(0, 36).map(r => ({ Url: firstImg(s.imgRel.get(r.ReleaseId)) })), N: V.length };
 }
 
-module.exports = { onThisDay, searchAll, search, band, favourites, favouritesSource, yearsList, year, stats, sitemapUrls, venue, week, randomPool,
+module.exports = { relRow, handleMap, visible, today, onThisDay, searchAll, search, band, favourites, favouritesSource, yearsList, year, stats, sitemapUrls, venue, week, randomPool,
                    gig, links, teaserUrl, teaserMap, pageLists, roundup };

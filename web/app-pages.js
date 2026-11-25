@@ -70,7 +70,7 @@ function gigTeaserCard(t) {
 }
 
 function showOnly(id) {
-  for (const v of ['dayView', 'bandView', 'favView', 'gigView', 'yearView', 'statsView', 'guessView', 'venueView', 'weekView', 'surpriseView']) $(v).hidden = v !== id;
+  for (const v of ['dayView', 'bandView', 'favView', 'gigView', 'yearView', 'statsView', 'guessView', 'venueView', 'weekView', 'surpriseView', 'voteView']) $(v).hidden = v !== id;
   document.querySelectorAll('.nav a[data-nav]').forEach(a => a.classList.toggle('on', a.dataset.nav === id));
 }
 
