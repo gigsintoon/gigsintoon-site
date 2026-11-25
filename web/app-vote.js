@@ -83,25 +83,40 @@ function drawVote() {
     <p>Every Monday the site randomly picks a year and whether it's albums, singles or EPs, then four randomly selected releases of that type from that year in my collection.</p>
     <p>The winner's announced on Saturday and added to the past votes below.</p></div>
     <div id="votePast"></div>`;
-  $('voteBody').innerHTML = html;
+  $('voteBody').innerHTML = html + votePanel();
+  document.body.classList.toggle('votemodal', voteOpen != null);
+  const cls = document.querySelector('.votepanel .voteclose'); if (cls) cls.focus({ preventScroll: true });
 }
 
 function voteCard(x, w) {
   const sel = votePick === x.ReleaseId, open = voteOpen === x.ReleaseId;
-  const md = `${ordinal(x.ReleaseDay)} ${MONTHS[x.ReleaseMonth - 1]}`;
   return `<div class="votecard${sel ? ' sel' : ''}${open ? ' open' : ''}">
     <button type="button" class="votepick" data-vpick="${x.ReleaseId}" aria-pressed="${sel}" aria-label="Pick ${esc(x.Title)} by ${esc(x.Artist)}">
       <span class="vc"><img src="${esc(x.CoverUrl)}" alt="Cover of ${esc(x.Title)} by ${esc(x.Artist)}" loading="lazy">${sel ? '<span class="tick">✓</span>' : ''}</span>
       <span class="vt">${esc(x.Title)}</span><span class="va">${esc(x.Artist)}</span>
       <span class="vm">${esc(voteDate(x))}${x.ChartPosition ? ' · UK No ' + x.ChartPosition : ''}</span>
     </button>
-    <button type="button" class="voteinfo" data-vinfo="${x.ReleaseId}" aria-expanded="${open}">${open ? `Hide ${esc(w[0])} info ▴` : `About this ${esc(w[0])} ▾`}</button>
-    ${open ? `<div class="votemore">
-      ${x.WriteUp ? `<div class="lbl">IN MY WORDS</div><div class="writeup">${renderWriteUp(x.WriteUp)}</div>` : ''}
-      <div class="listen" data-rid="${x.ReleaseId}" hidden></div>
-      <button type="button" class="votebtn" data-vpick="${x.ReleaseId}">Pick ${esc(x.Title)}</button>
-      <a href="/?date=${String(x.ReleaseMonth).padStart(2, '0')}-${String(x.ReleaseDay).padStart(2, '0')}">Everything released on ${esc(md)} ›</a>
-    </div>` : ''}
+    <button type="button" class="voteinfo" data-vinfo="${x.ReleaseId}" aria-expanded="${open}">${open ? `Hide ${esc(w[0])} info` : `About this ${esc(w[0])} ›`}</button>
+  </div>`;
+}
+
+// The album info: a panel in the middle of the screen (scrolls on its own if it's long)
+function votePanel() {
+  const d = voteData, x = d && d.entries.find(e => e.ReleaseId === voteOpen);
+  if (!x) return '';
+  const w = VOTE_WORD[d.type] || ['release', 'releases'];
+  const md = `${ordinal(x.ReleaseDay)} ${MONTHS[x.ReleaseMonth - 1]}`;
+  const canPick = d.open && d.voted == null;
+  return `<div class="voteshade" data-vclose></div>
+  <div class="votepanel" role="dialog" aria-modal="true" aria-label="${esc(x.Title)} by ${esc(x.Artist)}">
+    <button type="button" class="voteclose" data-vclose aria-label="Close">✕</button>
+    <div class="vphead"><img src="${esc(x.CoverUrl)}" alt="Cover of ${esc(x.Title)} by ${esc(x.Artist)}">
+      <div><div class="t">${esc(x.Title)}</div><div class="a">${esc(x.Artist)}</div>
+      <div class="muted small">${esc(w[0][0].toUpperCase() + w[0].slice(1))} · ${esc(voteDate(x))}${x.ChartPosition ? ' · UK No ' + x.ChartPosition : ''}</div></div></div>
+    ${x.WriteUp ? `<div class="lbl">IN MY WORDS</div><div class="writeup">${renderWriteUp(x.WriteUp)}</div>` : ''}
+    <div class="listen" data-rid="${x.ReleaseId}" hidden></div>
+    ${canPick ? `<button type="button" class="votebtn" data-vpick="${x.ReleaseId}" data-vclose>Pick ${esc(x.Title)}</button>` : ''}
+    <a href="/?date=${String(x.ReleaseMonth).padStart(2, '0')}-${String(x.ReleaseDay).padStart(2, '0')}">Everything released on ${esc(md)} ›</a>
   </div>`;
 }
 
@@ -126,9 +141,9 @@ async function loadPastVotes() {
 document.addEventListener('click', async e => {
   if (!voteData || $('voteView').hidden) return;
   const pick = e.target.closest('[data-vpick]'), info = e.target.closest('[data-vinfo]');
-  if (pick && voteData.open && voteData.voted == null) { votePick = Number(pick.dataset.vpick); drawVote(); loadPastVotes(); return; }
+  if (pick && voteData.open && voteData.voted == null) { votePick = Number(pick.dataset.vpick); if (pick.hasAttribute('data-vclose')) voteOpen = null; drawVote(); loadPastVotes(); return; }
+  if (e.target.closest('[data-vclose]')) { voteOpen = null; drawVote(); loadPastVotes(); return; }
   if (info) { const id = Number(info.dataset.vinfo); voteOpen = voteOpen === id ? null : id; drawVote(); loadPastVotes(); return; }
-  if (voteOpen != null && !e.target.closest('.votecard.open')) { voteOpen = null; drawVote(); loadPastVotes(); }   // tap elsewhere to close, as in Covers only
   if (e.target.id === 'voteCopy') {
     try { await navigator.clipboard.writeText('https://www.gigsintoon.co.uk/?page=vote'); e.target.textContent = 'Copied ✓'; } catch { /* ignore */ }
     return;
@@ -148,4 +163,8 @@ document.addEventListener('click', async e => {
       p.textContent = err.message;
     }
   }
+});
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && voteOpen != null && !$('voteView').hidden) { voteOpen = null; drawVote(); loadPastVotes(); }
 });
