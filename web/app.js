@@ -3,6 +3,7 @@
 // Surprise me: a page showing just the one random release, so it's clear what the surprise is
 async function showSurprise() {
   showOnly('surpriseView');
+  setMeta('Surprise me', 'A random release from a lifetime of music – press again for another.');
   $('surpriseBody').innerHTML = '<p class="muted">Picking something…</p>';
   $('surpriseDay').hidden = true;
   try {
