@@ -74,7 +74,7 @@ function rng(seed) {   // small seeded generator, so a week's pick is repeatable
 const NEVER = /^(anti-?flag|lostprophets)$/i;
 function pickFor(s, week, avoid) {
   const T = fc.today();
-  const thisYear = +week.slice(0, 4);
+  const thisYear = +String(week).slice(0, 4);
   const groups = new Map();   // "Album|1997" -> releases
   for (const r of s.Releases) {
     if (!TYPES.includes(r.ReleaseType) || !fc.visible(r, T) || r.ReleaseYear >= thisYear) continue;
@@ -236,6 +236,31 @@ app.http('voteLive', {
       await store.put(T_VOTES, 'settings', 'live', { Live: !!b.live, At: new Date().toISOString() });
     }
     return json({ live: await isLive() });
+  }
+});
+
+// POST /api/manage/vote-repick (owner only) – pick this week's four again, e.g. after correcting a release.
+// Only while nobody has voted, so nobody's vote is lost.
+app.http('voteRepick', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/vote-repick',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Owner only.' }, 403);
+    try {
+      const now = weekOf();
+      const rows = await store.rows(T_VOTES, now.week);
+      if (rows.some(r => r.rk.startsWith('count-') && Number(r.Votes) > 0)) return json({ error: "People have already voted this week, so it can't be picked again." }, 409);
+      const old = rows.find(r => r.rk === 'poll');
+      await store.del(T_VOTES, now.week, 'poll');
+      const s = await cat.load();
+      const avoid = new Set(old ? [old.Type + '|' + old.Year] : []);
+      for (let i = 1; i <= 12; i++) { const o = await store.get(T_VOTES, addDays(now.week, -7 * i), 'poll'); if (o) avoid.add(o.Type + '|' + o.Year); }
+      const fresh = pickFor(s, now.week + '|again' + (old ? '|' + old.Type + old.Year : ''), avoid);
+      if (!fresh) return json({ error: 'Not enough releases to pick from.' }, 500);
+      await store.put(T_VOTES, now.week, 'poll', fresh);
+      return json({ ok: true, type: fresh.Type, year: fresh.Year });
+    } catch (err) { context.error(err); return json({ error: 'Could not pick again.' }, 500); }
   }
 });
 
