@@ -240,7 +240,7 @@ app.http('voteLive', {
 });
 
 // POST /api/manage/vote-repick (owner only) – pick this week's four again, e.g. after correcting a release.
-// Only while nobody has voted, so nobody's vote is lost.
+// Only while nobody has voted, so nobody's vote is lost ({clearVotes:true} clears test votes, but only while the vote is hidden).
 app.http('voteRepick', {
   methods: ['POST'],
   authLevel: 'anonymous',
@@ -249,8 +249,12 @@ app.http('voteRepick', {
     if (!isOwner(request)) return json({ error: 'Owner only.' }, 403);
     try {
       const now = weekOf();
+      let b = {}; try { b = await request.json(); } catch { b = {}; }
       const rows = await store.rows(T_VOTES, now.week);
-      if (rows.some(r => r.rk.startsWith('count-') && Number(r.Votes) > 0)) return json({ error: "People have already voted this week, so it can't be picked again." }, 409);
+      const votes = rows.filter(r => r.rk.startsWith('count-')).reduce((a, r) => a + (Number(r.Votes) || 0), 0);
+      // {clearVotes:true} also wipes this week's votes – only for clearing test votes before the vote is live
+      if (votes && !(b.clearVotes && !(await isLive()))) return json({ error: "People have already voted this week, so it can't be picked again.", votes }, 409);
+      for (const r of rows) if (/^(count|voter|ip)-/.test(r.rk)) await store.del(T_VOTES, now.week, r.rk);
       const old = rows.find(r => r.rk === 'poll');
       await store.del(T_VOTES, now.week, 'poll');
       const s = await cat.load();
