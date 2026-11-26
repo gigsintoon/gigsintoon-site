@@ -225,3 +225,14 @@ body.votemodal{overflow:hidden}
 .voteshare .row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}.voteshare a,.voteshare button{text-align:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 4px;color:var(--text);text-decoration:none;font-size:14px}
 .votehow p{margin:0 0 6px;color:#c9cdd1;font-size:14px}
 .votepast{display:flex;gap:12px;align-items:center;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px;margin:8px 0}.votepast img{width:64px;height:64px;object-fit:cover;border-radius:8px}.votepast .t{font-weight:700}
+
+/* Vote: winners board */
+.leaguewrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px;background:var(--panel)}
+table.league{width:100%;border-collapse:collapse;font-size:14px}
+table.league th{font-size:12px;color:var(--muted);font-weight:700;text-align:center;padding:8px 6px;border-bottom:1px solid var(--line)}
+table.league th:nth-child(2){text-align:left}
+table.league td{padding:8px 6px;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle}
+table.league tr:last-child td{border-bottom:0}
+table.league td:nth-child(2){text-align:left}
+table.league tr.haswin td:first-child{color:var(--accent);font-weight:800}
+.lrel{display:flex;gap:10px;align-items:center;min-width:180px}.lrel img{width:40px;height:40px;object-fit:cover;border-radius:6px;flex:none}.lrel .t{font-weight:700;line-height:1.25}
