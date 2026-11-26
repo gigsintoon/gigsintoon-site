@@ -4,10 +4,10 @@
   if (!bar) return;
   const here = location.pathname.replace(/\.html$/, '').replace(/\/$/, '');
   const links = [['On this day', '/'], ['Favourites', '/?page=favourites'], ['This week', '/?page=week'], ['Stats', '/?page=stats'],
-                 ['Guess the cover', '/?page=guess'], ['About', '/about'], ['Contact', '/contact']];
+                 ['Guess the cover', '/?page=guess'], ['Vote', '/?page=vote'], ['About', '/about'], ['Contact', '/contact']];
   const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   bar.innerHTML = `<a class="brand" href="/">Gigs in <span>toon</span></a>
-    <nav class="nav">${links.map(([t, h]) => `<a href="${h}"${h === here ? ' class="on" aria-current="page"' : ''}>${t}</a>`).join('')}</nav>
+    <nav class="nav">${links.map(([t, h]) => `<a href="${h}"${h === here ? ' class="on" aria-current="page"' : ''}${t === 'Vote' ? ' id="tbVote" hidden' : ''}>${t}</a>`).join('')}</nav>
     <form class="search" role="search" id="tbSearch" hidden style="display:none">
       <input type="search" placeholder="Search bands…" autocomplete="off" aria-label="Search bands">
       <div class="results" hidden></div>
@@ -18,6 +18,13 @@
         <a href="https://bsky.app/profile/gigsintoon.bsky.social" target="_blank" rel="noopener" title="@gigsintoon.bsky.social on Bluesky"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5.2 3.3C7.7 5.2 10.4 9 11.4 11c1-2 3.7-5.8 6.2-7.7 1.8-1.4 4.8-2.4 4.8 1 0 .7-.4 5.7-.6 6.5-.8 2.8-3.6 3.5-6.1 3.1 4.4.8 5.5 3.2 3.1 5.7-4.6 4.7-6.6-1.2-7.1-2.7l-.3-.8-.3.8c-.5 1.5-2.5 7.4-7.1 2.7-2.4-2.5-1.3-4.9 3.1-5.7-2.5.4-5.3-.3-6.1-3.1-.2-.8-.6-5.8-.6-6.5 0-3.4 3-2.4 4.8-1z"/></svg></a>
         <a href="https://www.youtube.com/@michaelboyle3064" target="_blank" rel="noopener" title="Gigs in toon videos on YouTube"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M23.5 6.2a3 3 0 0 0-2.1-2.1C19.5 3.6 12 3.6 12 3.6s-7.5 0-9.4.5A3 3 0 0 0 .5 6.2 31 31 0 0 0 0 12a31 31 0 0 0 .5 5.8 3 3 0 0 0 2.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 0 0 2.1-2.1A31 31 0 0 0 24 12a31 31 0 0 0-.5-5.8zM9.6 15.6V8.4l6.3 3.6-6.3 3.6z"/></svg></a>
       </nav>`;
+  // the Vote link appears once the vote is live
+  (async () => {
+    let live = null;
+    try { live = sessionStorage.getItem('voteLive'); } catch { /* ignore */ }
+    if (live == null) { try { live = (await (await fetch('/api/vote?status=1')).json()).live ? '1' : '0'; sessionStorage.setItem('voteLive', live); } catch { live = '0'; } }
+    if (live === '1') { const v = bar.querySelector('#tbVote'); if (v) v.hidden = false; }
+  })();
   const form = bar.querySelector('#tbSearch'), box = form.querySelector('input'), out = form.querySelector('.results');
   let t, allBands = null;
   // Search a ready-made list of every band in the browser (one cached download, no database wake-up per keystroke).

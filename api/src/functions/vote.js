@@ -141,7 +141,45 @@ async function forgetConnections(week, rows) {
   for (const r of ips) await store.del(T_VOTES, week, r.rk);
 }
 
-async function isLive() { const r = await store.get(T_VOTES, 'settings', 'live'); return !!(r && r.Live); }
+// Live when switched on and its start time (From) has passed – e.g. switched on now to start Monday 30 Nov at midnight
+async function isLive() {
+  const r = await store.get(T_VOTES, 'settings', 'live');
+  return !!(r && r.Live && (!r.From || Date.now() >= Date.parse(r.From)));
+}
+// The first real week (earlier weeks were tests) – past winners and the league start here
+const FIRST_WEEK = '2026-11-30';
+const WIN = 3, DRAW = 1;
+async function closedWeeks(now) {
+  const out = [];
+  for (let w = FIRST_WEEK; w <= now.week; w = addDays(w, 7)) if (w < now.week || !now.open) out.push(w);
+  return out;
+}
+let leagueCache = null;
+async function league(s, now) {
+  if (leagueCache && leagueCache.at > Date.now() - 10 * 60000 && leagueCache.key === now.week + now.open) return leagueCache.body;
+  const table = new Map();
+  let weeks = 0;
+  for (const w of await closedWeeks(now)) {
+    const poll = await pollFor(s, w, false);
+    if (!poll) continue;
+    const { entries: list } = entries(s, poll);
+    const t = await tally(w, list.map(x => x.ReleaseId));
+    if (!t.total) continue;
+    weeks++;
+    const draw = t.winners.length > 1;
+    for (const x of list) {
+      const row = table.get(x.ReleaseId) || { ReleaseId: x.ReleaseId, Title: x.Title, Artist: x.Artist, BandId: x.BandId, CoverUrl: x.CoverUrl, ReleaseType: x.ReleaseType, ReleaseYear: x.ReleaseYear, played: 0, won: 0, drawn: 0, lost: 0, points: 0, votes: 0 };
+      row.played++; row.votes += (t.results.find(r => r.id === x.ReleaseId) || {}).votes || 0;
+      if (t.winners.includes(x.ReleaseId)) { if (draw) { row.drawn++; row.points += DRAW; } else { row.won++; row.points += WIN; } }
+      else row.lost++;
+      table.set(x.ReleaseId, row);
+    }
+  }
+  const rows = [...table.values()].sort((a, b) => b.points - a.points || b.won - a.won || b.votes - a.votes || a.Title.localeCompare(b.Title));
+  const body = { league: rows, weeks, points: { win: WIN, draw: DRAW, lose: 0 } };
+  leagueCache = { at: Date.now(), key: now.week + now.open, body };
+  return body;
+}
 async function allowed(request) { return isOwner(request) || await isLive(); }
 
 // GET /api/vote            -> this week's vote (and the visitor's own vote, from their token)
@@ -153,15 +191,19 @@ app.http('vote', {
   route: 'vote',
   handler: async (request, context) => {
     try {
+      if (request.query.get('status')) return json({ live: await isLive() });
       if (!await allowed(request)) return json({ error: 'Not available yet.' }, 404);
       const s = await cat.load();
       const now = weekOf();
       const owner = isOwner(request);
 
+      if (request.method === 'GET' && request.query.get('league')) return json(await league(s, now));
+
       if (request.method === 'GET' && request.query.get('past')) {
         const out = [];
         for (let i = 1; i <= 12; i++) {
           const w = addDays(now.week, -7 * i);
+          if (w < FIRST_WEEK) break;
           const poll = await pollFor(s, w, false);
           if (!poll) continue;
           const { entries: list } = entries(s, poll);
@@ -233,9 +275,10 @@ app.http('voteLive', {
     if (!isOwner(request)) return json({ error: 'Owner only.' }, 403);
     if (request.method === 'POST') {
       let b = {}; try { b = await request.json(); } catch { b = {}; }
-      await store.put(T_VOTES, 'settings', 'live', { Live: !!b.live, At: new Date().toISOString() });
+      await store.put(T_VOTES, 'settings', 'live', { Live: !!b.live, From: b.from ? new Date(b.from).toISOString() : '', At: new Date().toISOString() });
     }
-    return json({ live: await isLive() });
+    const r = await store.get(T_VOTES, 'settings', 'live');
+    return json({ live: await isLive(), switchedOn: !!(r && r.Live), from: r && r.From || null });
   }
 });
 

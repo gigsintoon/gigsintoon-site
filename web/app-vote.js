@@ -48,7 +48,7 @@ function drawVote() {
     html += `<p class="voteintro">Four randomly selected ${esc(w[1])} from my collection, all released in ${d.year}. Which one's your favourite?</p>
       <div class="votechips"><span>${esc(timeLeft(left))}</span><span>Closes Sat 6pm</span></div>
       <div class="votegrid">${d.entries.map(x => voteCard(x, w)).join('')}</div>
-      <div class="votego">${votePick ? `<button id="voteSend" class="votebtn">Vote for ${esc(byId[votePick].Title)}</button>`
+      <div class="votego">${votePick ? `<button id="voteSend" class="votebtn">Vote for ${esc(byId[votePick].Title)} by ${esc(byId[votePick].Artist)}</button>`
         : '<div class="votehint">Tap a cover to pick your favourite</div>'}
       <p class="muted small">One vote each. You'll see how the vote is going once you've voted.</p></div>`;
   } else {
@@ -83,7 +83,8 @@ function drawVote() {
   html += `<div class="votehow"><div class="t">How it works</div>
     <p>Every Monday the site randomly picks a year and whether it's albums, singles or EPs, then four randomly selected releases of that type from that year in my collection.</p>
     <p>The winner's announced on Saturday and added to the past votes below.</p></div>
-    <div id="votePast"></div>`;
+    <div id="votePast"></div>
+    <div id="voteLeague"></div>`;
   $('voteBody').innerHTML = html + votePanel();
   document.body.classList.toggle('votemodal', voteOpen != null);
   const cls = document.querySelector('.votepanel .voteclose'); if (cls) cls.focus({ preventScroll: true });
@@ -123,7 +124,27 @@ function votePanel() {
   </div>`;
 }
 
+// Winners board: every release that's been in a vote. 3 points for a win, 1 for a tie, 0 otherwise.
+async function loadLeague() {
+  try {
+    const r = await fetch('/api/vote?league=1', { headers: { Accept: 'application/json' } });
+    const d = await r.json();
+    if (!$('voteLeague')) return;
+    const rows = d.league || [];
+    let html = `<h2 class="voteh">Winners board</h2>
+      <p class="muted small" style="margin-top:-4px">Every release that's been in a vote: ${d.points ? d.points.win : 3} points for a win, ${d.points ? d.points.draw : 1} for a tie, 0 otherwise. P = times it's been in a vote.</p>`;
+    if (!rows.length) html += '<p class="muted">The board starts once the first vote closes on Saturday 5 December.</p>';
+    else html += `<div class="leaguewrap"><table class="league"><thead><tr><th>#</th><th>Release</th><th title="Times in a vote">P</th><th title="Won">W</th><th title="Tied">T</th><th title="Lost">L</th><th title="Points">Pts</th></tr></thead><tbody>
+      ${rows.map((x, i) => `<tr${x.won || x.drawn ? ' class="haswin"' : ''}><td>${i + 1}</td>
+        <td><div class="lrel"><img src="${esc(x.CoverUrl)}" alt="" loading="lazy"><div><div class="t">${esc(x.Title)}</div><div class="muted small">${esc(x.Artist)} · ${esc(x.ReleaseType)} · ${x.ReleaseYear}</div></div></div></td>
+        <td>${x.played}</td><td>${x.won}</td><td>${x.drawn}</td><td>${x.lost}</td><td><strong>${x.points}</strong></td></tr>`).join('')}
+      </tbody></table></div>`;
+    $('voteLeague').innerHTML = html;
+  } catch { /* the board is optional */ }
+}
+
 async function loadPastVotes() {
+  loadLeague();
   try {
     const r = await fetch('/api/vote?past=1', { headers: { Accept: 'application/json' } });
     const { past } = await r.json();
@@ -171,3 +192,14 @@ document.addEventListener('click', async e => {
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && voteOpen != null && !$('voteView').hidden) { voteOpen = null; drawVote(); loadPastVotes(); }
 });
+
+// The Vote link in the menu appears once the vote is live (remembered for the visit)
+(async () => {
+  let live = null;
+  try { live = sessionStorage.getItem('voteLive'); } catch { /* ignore */ }
+  if (live == null) {
+    try { live = (await (await fetch('/api/vote?status=1')).json()).live ? '1' : '0'; sessionStorage.setItem('voteLive', live); } catch { live = '0'; }
+  }
+  const a = document.getElementById('navVote');
+  if (a && (live === '1' || (isAdmin && !asVisitor))) a.hidden = false;
+})();
