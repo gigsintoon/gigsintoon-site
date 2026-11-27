@@ -24,6 +24,14 @@ function week7(rows) {
   const max = Math.max(1, ...days.map(d => d.n));
   return `<div class="w7">${days.map(d => `<div class="w7d"><span class="w7n">${d.n}</span><div class="w7b"><i style="height:${Math.round(d.n / max * 100)}%"></i></div><span class="w7l">${d.label}</span></div>`).join('')}</div>`;
 }
+function guessBlock(g, today) {
+  if (!g) return '';
+  const t = g.today, ppl = n => n === 1 ? '1 person' : n + ' people';
+  const todayLine = `<p><b>${ppl(t.correct)}</b> got today's cover right <span class="muted">· ${t.tries} guess${t.tries === 1 ? '' : 'es'} made · ${t.named} added their name to the board</span></p>`;
+  if (today) return `<h3>Guess the cover today</h3>${todayLine}`;
+  const days7 = (g.last7 || []).filter(d => d.tries).map(d => `<li>${new Date(d.day + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })} <span class="muted">${ppl(d.correct)} right · ${d.tries} guesses</span></li>`).join('');
+  return `<h3>Guess the cover</h3>${todayLine}<p>In this period: <b>${ppl(g.period.correct)}</b> got it right <span class="muted">· ${g.period.tries} guesses over ${g.period.days} day${g.period.days === 1 ? '' : 's'}</span></p>${days7 ? '<ol>' + days7 + '</ol>' : ''}`;
+}
 async function loadVisits(days = 30, attempt = 1) {
   $('visitBody').textContent = attempt > 1 ? 'Still loading – the database was asleep, waking it up…' : 'Loading…';
   try {
@@ -55,6 +63,7 @@ async function loadVisits(days = 30, attempt = 1) {
       ? `${tiles}
          <h3>Last 7 days</h3>${week7(v.last7 || [])}
          ${today ? '' : `<h3>Every day in this period</h3><div class="vbars">${bars}</div>`}
+         ${guessBlock(v.guess, today)}
          <h3>Buttons pressed${today ? ' today' : ''}</h3>${(v.clicks || []).length ? '<ol>' + v.clicks.map(c => `<li>${esc(c.Name)} <span class="muted">${today ? c.Today + ' today' : `${c.Count} in this period · ${c.Last7} in the last 7 days · ${c.Today} today`}</span></li>`).join('') + '</ol>' : `<p class="muted">Nobody has pressed Surprise me yet ${today ? 'today' : 'in this period'}.</p>`}
          <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div>
            <div><h3>Where visitors are</h3>${places(v.places || [])}<p class="muted small">Worked out from each visitor's clock setting (time zone), so it's the region rather than an exact town.</p></div></div>`
