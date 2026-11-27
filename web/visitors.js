@@ -29,7 +29,7 @@ function guessBlock(g, today) {
   const t = g.today, ppl = n => n === 1 ? '1 person' : n + ' people';
   const todayLine = `<p><b>${ppl(t.correct)}</b> got today's cover right <span class="muted">· ${t.tries} guess${t.tries === 1 ? '' : 'es'} made · ${t.named} added their name to the board</span></p>`;
   if (today) return `<h3>Guess the cover today</h3>${todayLine}`;
-  const days7 = (g.last7 || []).filter(d => d.tries).map(d => `<li>${new Date(d.day + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })} <span class="muted">${ppl(d.correct)} right · ${d.tries} guesses</span></li>`).join('');
+  const days7 = (g.last7 || []).filter(d => d.tries).map(d => `<li>${new Date(d.day + 'T00:00:00Z').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', timeZone: 'UTC' })} <span class="muted">${ppl(d.correct)} right · ${d.tries} guess${d.tries === 1 ? "" : "es"}</span></li>`).join('');
   return `<h3>Guess the cover</h3>${todayLine}<p>In this period: <b>${ppl(g.period.correct)}</b> got it right <span class="muted">· ${g.period.tries} guesses over ${g.period.days} day${g.period.days === 1 ? '' : 's'}</span></p>${days7 ? '<ol>' + days7 + '</ol>' : ''}`;
 }
 async function loadVisits(days = 30, attempt = 1) {
