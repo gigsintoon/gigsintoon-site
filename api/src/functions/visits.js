@@ -1,6 +1,6 @@
 const { app } = require('@azure/functions');
 const {
-  query, json, fail, store, isOwner, isRunner, crypto, M, S, visitData, ukDay, dayBefore, tallyFor, scoresFor
+  query, json, fail, store, isOwner, isRunner, crypto, M, S, visitData, ukDay, dayBefore, tallyFor, scoresFor, lastDays
 } = require('../shared-releases');
 
 app.http('hit', {
@@ -49,7 +49,20 @@ app.http('visits', {
     const days = Math.min(365, Math.max(1, parseInt(request.query.get('days'), 10) || 30));
     try {
       const { byDay, pages, refs, places, last7, clicks } = await visitData(days);
-      return json({ days, byDay, pages, refs, places, last7, clicks });
+      // Guess the cover: everyone who got it right each day (named on the board or not), from the daily tally - storage only
+      let guess = null;
+      try {
+        const ds = lastDays(Math.max(days, 7)), today = ukDay();
+        const rows = await store.rowsBetween('guesstally', ds[0], ds[ds.length - 1]);
+        const by = rows.filter(r => r.rk === 't').map(r => ({ day: r.pk, tries: Number(r.Tries) || 0, correct: Number(r.Correct) || 0 })).sort((a, b) => a.day < b.day ? -1 : 1);
+        const inPeriod = new Set(lastDays(days));
+        const t = by.find(r => r.day === today) || { tries: 0, correct: 0 };
+        const period = by.filter(r => inPeriod.has(r.day));
+        guess = { today: { ...t, named: (await scoresFor(today).catch(() => [])).length },
+                  period: { tries: period.reduce((a, r) => a + r.tries, 0), correct: period.reduce((a, r) => a + r.correct, 0), days: period.filter(r => r.tries).length },
+                  last7: by.filter(r => new Set(lastDays(7)).has(r.day)) };
+      } catch (e) { context.warn('guess figures: ' + e.message); }
+      return json({ days, byDay, pages, refs, places, last7, clicks, guess });
     } catch (err) {
       return fail(context, err);
     }
