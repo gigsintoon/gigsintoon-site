@@ -34,13 +34,18 @@ async function loadVisits(days = 30, attempt = 1) {
     }
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const v = await r.json();
+    if (days === 1) {   // Today only fetches one day, so get the week separately for the 7-day strip and yesterday's figure
+      const w = await fetch('/api/manage/visits?days=7').then(x => x.ok ? x.json() : null).catch(() => null);
+      if (w) v.last7 = w.last7;
+    }
     const total = v.byDay.reduce((s, d) => s + d.Views, 0), mob = v.byDay.reduce((s, d) => s + d.Mobile, 0);
     const max = Math.max(1, ...v.byDay.map(d => d.Views));
     const bars = v.byDay.map(d => `<div class="vbar" title="${d.ViewDate.slice(0, 10)}: ${d.Views}"><i style="height:${Math.round(d.Views / max * 100)}%"></i></div>`).join('');
     const best = v.byDay.reduce((a, d) => d.Views > (a ? a.Views : 0) ? d : a, null);
     const list = (rows, k) => rows.length ? '<ol>' + rows.map(r => `<li>${esc(r[k] || '(direct)')} <span class="muted">${r.Views}</span></li>`).join('') + '</ol>' : '<p class="muted">None yet.</p>';
     const today = days === 1;   // "Today" filter: just today's numbers (UK date), no averages or day-by-day bars
-    const yest = (v.last7 || []).slice(-2, -1)[0];
+    const yd = new Date(Date.now() - 864e5), yk = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/London' }).format(yd);
+    const yest = (v.last7 || []).find(d => d.ViewDate.slice(0, 10) === yk);
     const tiles = today
       ? `<div class="tiles"><div><b>${total}</b><span>page views today</span></div><div><b>${Math.round(mob / total * 100)}%</b><span>on phones</span></div>
            <div><b>${v.pages.length}${v.pages.length >= 20 ? "+" : ""}</b><span>different pages</span></div><div><b>${yest ? yest.Views : 0}</b><span>yesterday, for comparison</span></div></div>`
