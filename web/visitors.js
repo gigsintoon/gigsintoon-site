@@ -39,15 +39,21 @@ async function loadVisits(days = 30, attempt = 1) {
     const bars = v.byDay.map(d => `<div class="vbar" title="${d.ViewDate.slice(0, 10)}: ${d.Views}"><i style="height:${Math.round(d.Views / max * 100)}%"></i></div>`).join('');
     const best = v.byDay.reduce((a, d) => d.Views > (a ? a.Views : 0) ? d : a, null);
     const list = (rows, k) => rows.length ? '<ol>' + rows.map(r => `<li>${esc(r[k] || '(direct)')} <span class="muted">${r.Views}</span></li>`).join('') + '</ol>' : '<p class="muted">None yet.</p>';
+    const today = days === 1;   // "Today" filter: just today's numbers (UK date), no averages or day-by-day bars
+    const yest = (v.last7 || []).slice(-2, -1)[0];
+    const tiles = today
+      ? `<div class="tiles"><div><b>${total}</b><span>page views today</span></div><div><b>${Math.round(mob / total * 100)}%</b><span>on phones</span></div>
+           <div><b>${v.pages.length}${v.pages.length >= 20 ? "+" : ""}</b><span>different pages</span></div><div><b>${yest ? yest.Views : 0}</b><span>yesterday, for comparison</span></div></div>`
+      : `<div class="tiles"><div><b>${total}</b><span>page views</span></div><div><b>${Math.round(total / Math.max(1, v.byDay.length))}</b><span>a day on average</span></div>
+           <div><b>${Math.round(mob / total * 100)}%</b><span>on phones</span></div><div><b>${best ? best.Views : 0}</b><span>busiest day${best ? ' · ' + new Date(best.ViewDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span></div></div>`;
     $('visitBody').innerHTML = total
-      ? `<div class="tiles"><div><b>${total}</b><span>page views</span></div><div><b>${Math.round(total / Math.max(1, v.byDay.length))}</b><span>a day on average</span></div>
-           <div><b>${Math.round(mob / total * 100)}%</b><span>on phones</span></div><div><b>${best ? best.Views : 0}</b><span>busiest day${best ? ' · ' + new Date(best.ViewDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span></div></div>
+      ? `${tiles}
          <h3>Last 7 days</h3>${week7(v.last7 || [])}
-         <h3>Every day in this period</h3><div class="vbars">${bars}</div>
-         <h3>Buttons pressed</h3>${(v.clicks || []).length ? '<ol>' + v.clicks.map(c => `<li>${esc(c.Name)} <span class="muted">${c.Count} in this period · ${c.Last7} in the last 7 days · ${c.Today} today</span></li>`).join('') + '</ol>' : '<p class="muted">Nobody has pressed Surprise me yet in this period.</p>'}
+         ${today ? '' : `<h3>Every day in this period</h3><div class="vbars">${bars}</div>`}
+         <h3>Buttons pressed${today ? ' today' : ''}</h3>${(v.clicks || []).length ? '<ol>' + v.clicks.map(c => `<li>${esc(c.Name)} <span class="muted">${today ? c.Today + ' today' : `${c.Count} in this period · ${c.Last7} in the last 7 days · ${c.Today} today`}</span></li>`).join('') + '</ol>' : `<p class="muted">Nobody has pressed Surprise me yet ${today ? 'today' : 'in this period'}.</p>`}
          <div class="vcols"><div><h3>Pages</h3>${list(v.pages, 'Path')}</div><div><h3>Came from</h3>${list(v.refs, 'RefHost')}</div>
            <div><h3>Where visitors are</h3>${places(v.places || [])}<p class="muted small">Worked out from each visitor's clock setting (time zone), so it's the region rather than an exact town.</p></div></div>`
-      : '<p>No visits counted in this period yet.</p>';
+      : `<p>No visits counted ${days === 1 ? 'today' : 'in this period'} yet.</p>`;
   } catch {
     // Signed out? The site then sends the request off to the Microsoft sign-in page, which shows up here as a failed request.
     const me = await fetch('/api/me', { cache: 'no-store' }).then(x => x.json()).catch(() => null);
