@@ -53,10 +53,26 @@ async function showGig(id) {
       ${pics ? `<div class="gigpics${g.Images.length > 1 ? ' many' : ''}">${pics}</div>` : ''}
       ${isAdmin && !asVisitor ? `<p><label class="btn addpics">📷 Add photos<input id="addPics" type="file" accept="image/*" multiple hidden></label> <span id="picMsg" class="muted"></span></p>` : ''}
       ${g.WriteUp ? `<div class="writeup">${renderWriteUp(g.WriteUp)}</div>` : ''}
+      ${isAdmin && !asVisitor ? `<p><button class="btn ghost" id="editWu">✏️ Edit write-up</button></p>
+        <div id="wuBox" hidden><textarea id="wuText" rows="7" style="width:100%;font:inherit;padding:10px;border-radius:8px;background:var(--panel);color:var(--text);border:1px solid var(--line)"></textarea>
+        <p><button class="btn" id="wuSave">Save</button> <button class="btn ghost" id="wuCancel">Cancel</button> <span id="wuMsg" class="muted"></span></p></div>` : ''}
       ${(g.Videos || []).length ? `<h2>Video${g.Videos.length > 1 ? 's' : ''} from the night</h2><div class="gigvids">${g.Videos.map(v => `<figure><div class="yt"><iframe src="https://www.youtube-nocookie.com/embed/${encodeURIComponent(v.id)}" title="${esc(v.title || 'Video')}" loading="lazy" allow="accelerometer; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></div>${v.title ? `<figcaption>${esc(v.title)}</figcaption>` : ''}</figure>`).join('')}</div>` : ''}
       ${sets ? `<h2>Setlist</h2><div class="sets">${sets}</div>` : ''}
       ${g.SetlistUrl && sets ? `<p class="meta">Setlist from <a href="${esc(g.SetlistUrl)}" target="_blank" rel="noopener">setlist.fm</a></p>` : ''}`;
     $('addPics')?.addEventListener('change', e => addGigPhotos(g, [...e.target.files]));
+    // Owner: edit the write-up in place (saved straight away; the gig's day is rebuilt so visitors see it)
+    $('editWu')?.addEventListener('click', () => { $('wuText').value = g.WriteUp || ''; $('wuBox').hidden = false; $('editWu').hidden = true; $('wuText').focus(); });
+    $('wuCancel')?.addEventListener('click', () => { $('wuBox').hidden = true; $('editWu').hidden = false; });
+    $('wuSave')?.addEventListener('click', async () => {
+      $('wuMsg').textContent = 'Saving…';
+      try {
+        const r = await (await fetch('/api/manage/gig', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: g.GigId, date: g.GigDate.slice(0, 10), bands: g.Bands.map(b => b.Name),
+                                 status: g.Status, writeUp: $('wuText').value.trim() }) })).json();
+        if (!r.ok) throw new Error(r.error || 'Could not save');
+        showGig(g.GigId);
+      } catch (e) { $('wuMsg').textContent = e.message; }
+    });
   } catch (e) { $('gigBody').innerHTML = `<p class="empty">${esc(e.message)}</p>`; }
 }
 
