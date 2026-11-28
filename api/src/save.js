@@ -182,6 +182,30 @@ async function status(request, context) {
 // one of the release's own images, or the post text contains the title and the band (name, handle or hashtag).
 const norm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
 const squash = s => norm(s).replace(/ /g, '');
+function findRelease(t, bands, md, text, flat, imgs) {
+  const cands = t.Releases.filter(r => d10(r.ReleaseDate).slice(5) === md);
+  return cands.find(r => t.Images.some(i => i.ReleaseId === r.ReleaseId && imgs.has(String(i.PublicUrl || '').split('?')[0].toLowerCase())))
+    || cands.find(r => {
+      const band = bands.get(r.BandId) || {};
+      const title = norm(r.Title).replace(/ (reissue|deluxe|remaster(ed)?)$/, '');
+      if (!title || !(' ' + text + ' ').includes(' ' + title + ' ')) return false;
+      const keys = [band.Name, band.XHandle, band.InstagramHandle, band.BlueskyHandle, band.Hashtag].filter(Boolean).map(squash).filter(k => k.length >= 3);
+      return keys.some(k => flat.includes(k));
+    });
+}
+// For the nightly checks: the release each post is about and its covers on Michael's own storage (reads only).
+async function matchCovers(posts) {
+  const t = await M.read(['Bands', 'Releases', 'Images']);
+  const bands = new Map(t.Bands.map(x => [x.BandId, x]));
+  return posts.slice(0, 300).map(p => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date || '')) return { key: p.key, error: 'bad date' };
+    const imgs = new Set((p.images || []).map(u => String(u).split('?')[0].toLowerCase()));
+    const r = findRelease(t, bands, p.date.slice(5), norm(p.text), squash(p.text), imgs);
+    if (!r) return { key: p.key, match: null };
+    const covers = t.Images.filter(i => i.ReleaseId === r.ReleaseId && i.Kind !== 'Teaser').sort((a, b) => (a.SortOrder || 0) - (b.SortOrder || 0)).map(i => i.PublicUrl).filter(Boolean);
+    return { key: p.key, match: { id: r.ReleaseId, band: (bands.get(r.BandId) || {}).Name, title: r.Title, type: r.ReleaseType }, covers };
+  });
+}
 async function markSent(request, context) {
   try {
     const b = await request.json().catch(() => ({}));
@@ -202,15 +226,7 @@ async function markSent(request, context) {
           const g = t.Gigs.find(x => d10(x.GigDate) === gy + '-' + md);
           if (g) { if (g.Status !== 'Posted') { if (!dry) Object.assign(g, { Status: 'Posted', UpdatedAt: now }); gigsMarked.push(g.GigId); } continue; }
         }
-        const cands = t.Releases.filter(r => d10(r.ReleaseDate).slice(5) === md);
-        let hit = cands.find(r => t.Images.some(i => i.ReleaseId === r.ReleaseId && imgs.has(String(i.PublicUrl || '').split('?')[0].toLowerCase())));
-        if (!hit) hit = cands.find(r => {
-          const band = bands.get(r.BandId) || {};
-          const title = norm(r.Title).replace(/ (reissue|deluxe|remaster(ed)?)$/, '');
-          if (!title || !(' ' + text + ' ').includes(' ' + title + ' ')) return false;
-          const keys = [band.Name, band.XHandle, band.InstagramHandle, band.BlueskyHandle, band.Hashtag].filter(Boolean).map(squash).filter(k => k.length >= 3);
-          return keys.some(k => flat.includes(k));
-        });
+        const hit = findRelease(t, bands, md, text, flat, imgs);
         if (!hit) { unmatched.push({ date: p.date, text: String(p.text || '').slice(0, 80) }); continue; }
         if (hit.Status !== 'NotPosted') continue;
         const band = (bands.get(hit.BandId) || {}).Name;
@@ -665,6 +681,6 @@ async function daysOfReleases(ids) {
   return [...new Set(t.Releases.filter(r => ids.includes(r.ReleaseId)).map(r => String(r.ReleaseMonth).padStart(2, '0') + '-' + String(r.ReleaseDay).padStart(2, '0')))];
 }
 
-module.exports = { markSent, importFile, release, releaseDelete, releaseImages, month, status, statusOverrides, charts, fixNames, releaseFix, resetReleases,
+module.exports = { markSent, matchCovers, importFile, release, releaseDelete, releaseImages, month, status, statusOverrides, charts, fixNames, releaseFix, resetReleases,
                    imagePathsInUse, siteInfoCounts, gig, gigImage, gigDelete, releaseLinks, deezerCandidates, deezerSave, writeupReplace,
                    contactSave, messages, bandsList, siteAdditions, todos, reportKeySave, reportKeyHash, remembering, favourites, puzzle, reportData, daysOfReleases };
