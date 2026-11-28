@@ -176,6 +176,57 @@ async function status(request, context) {
   } catch (err) { return failDetail(context, err); }
 }
 
+// POST /api/manage/mark-sent {posts:[{date:'YYYY-MM-DD', text, images:[url]}]}
+// The nightly run sends the posts Buffer actually published that day; any release (or gig) they match that is still
+// "Not posted" turns orange (Drafted). Never touches green, red or already-orange rows. Matching: the post's image is
+// one of the release's own images, or the post text contains the title and the band (name, handle or hashtag).
+const norm = s => String(s || '').toLowerCase().normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').trim();
+const squash = s => norm(s).replace(/ /g, '');
+async function markSent(request, context) {
+  try {
+    const b = await request.json().catch(() => ({}));
+    const posts = Array.isArray(b.posts) ? b.posts.slice(0, 200) : [];
+    if (!posts.length) return json({ ok: false, error: 'Give posts: [{date, text, images}]' }, 400);
+    const dry = request.query.get('dry') === '1';
+    const out = await M.change(['Bands', 'Releases', 'Images', 'StatusOverrides', 'Gigs', 'GigBands'], t => {
+      const bands = new Map(t.Bands.map(x => [x.BandId, x]));
+      const marked = [], unmatched = [], gigsMarked = [];
+      const now = nowIso();
+      for (const p of posts) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(p.date || '')) continue;
+        const md = p.date.slice(5), text = norm(p.text), flat = squash(p.text);
+        const imgs = new Set((p.images || []).map(u => String(u).split('?')[0].toLowerCase()));
+        // gig memories
+        const gy = /gig memory/i.test(p.text || '') && (String(p.text).match(/\b(19|20)\d{2}\b/) || [])[0];
+        if (gy) {
+          const g = t.Gigs.find(x => d10(x.GigDate) === gy + '-' + md);
+          if (g) { if (g.Status !== 'Posted') { if (!dry) Object.assign(g, { Status: 'Posted', UpdatedAt: now }); gigsMarked.push(g.GigId); } continue; }
+        }
+        const cands = t.Releases.filter(r => d10(r.ReleaseDate).slice(5) === md);
+        let hit = cands.find(r => t.Images.some(i => i.ReleaseId === r.ReleaseId && imgs.has(String(i.PublicUrl || '').split('?')[0].toLowerCase())));
+        if (!hit) hit = cands.find(r => {
+          const band = bands.get(r.BandId) || {};
+          const title = norm(r.Title).replace(/ (reissue|deluxe|remaster(ed)?)$/, '');
+          if (!title || !(' ' + text + ' ').includes(' ' + title + ' ')) return false;
+          const keys = [band.Name, band.XHandle, band.InstagramHandle, band.BlueskyHandle, band.Hashtag].filter(Boolean).map(squash).filter(k => k.length >= 3);
+          return keys.some(k => flat.includes(k));
+        });
+        if (!hit) { unmatched.push({ date: p.date, text: String(p.text || '').slice(0, 80) }); continue; }
+        if (hit.Status !== 'NotPosted') continue;
+        const band = (bands.get(hit.BandId) || {}).Name;
+        marked.push({ id: hit.ReleaseId, band, title: hit.Title });
+        if (dry) continue;
+        Object.assign(hit, { Status: 'Drafted', UpdatedAt: now });
+        const vals = { Band: band, Title: hit.Title, ReleaseDate: hit.ReleaseDate, Colour: 'orange', Status: 'Drafted', OnSonos: hit.OnSonosPlaylist, ChangedAt: now };
+        const o = t.StatusOverrides.find(x => x.ReleaseId === hit.ReleaseId);
+        if (o) Object.assign(o, vals); else t.StatusOverrides.push(newRow(t, 'StatusOverrides', { ReleaseId: hit.ReleaseId, ...vals }));
+      }
+      return { marked, gigsMarked, unmatched };
+    }, 'mark-sent');
+    return json({ ok: true, dry, ...out });
+  } catch (err) { return failDetail(context, err); }
+}
+
 const overrideOut = r => ({ id: r.ReleaseId, band: r.Band, title: r.Title, date: d10(r.ReleaseDate), colour: r.Colour, status: r.Status, sonos: !!r.OnSonos, at: r.ChangedAt });
 async function statusOverrides(request, context) {
   try {
@@ -614,6 +665,6 @@ async function daysOfReleases(ids) {
   return [...new Set(t.Releases.filter(r => ids.includes(r.ReleaseId)).map(r => String(r.ReleaseMonth).padStart(2, '0') + '-' + String(r.ReleaseDay).padStart(2, '0')))];
 }
 
-module.exports = { importFile, release, releaseDelete, releaseImages, month, status, statusOverrides, charts, fixNames, releaseFix, resetReleases,
+module.exports = { markSent, importFile, release, releaseDelete, releaseImages, month, status, statusOverrides, charts, fixNames, releaseFix, resetReleases,
                    imagePathsInUse, siteInfoCounts, gig, gigImage, gigDelete, releaseLinks, deezerCandidates, deezerSave, writeupReplace,
                    contactSave, messages, bandsList, siteAdditions, todos, reportKeySave, reportKeyHash, remembering, favourites, puzzle, reportData, daysOfReleases };

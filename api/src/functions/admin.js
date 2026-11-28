@@ -697,3 +697,14 @@ app.http('adminUploadLink', {
     }
   }
 });
+
+app.http('adminMarkSent', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'manage/mark-sent',
+  handler: async (request, context) => {
+    if (!isOwner(request)) return json({ error: 'Not allowed.' }, 403);
+    if (!(await M.on())) return json({ ok: false, error: 'Only works once the site runs from storage.' }, 503);
+    return S.markSent(request, context);
+  }
+});

@@ -1,0 +1,28 @@
+name: Mark sent posts
+# Run by the nightly Claude task (gh workflow run mark-sent.yml -f posts='[...]') with the posts Buffer published that day.
+# Releases/gigs they match that are still "Not posted" turn orange on the site.
+on:
+  workflow_dispatch:
+    inputs:
+      posts:
+        description: 'JSON list of {date, text, images} for posts sent'
+        required: true
+      dry:
+        description: 'Dry run (1 = just report matches)'
+        required: false
+        default: '0'
+jobs:
+  mark:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send to the site
+        env:
+          REPORT_KEY: ${{ secrets.REPORT_KEY }}
+          POSTS: ${{ github.event.inputs.posts }}
+          DRY: ${{ github.event.inputs.dry }}
+        run: |
+          printf '%s' "$POSTS" | python3 -c 'import json,sys; p=json.load(sys.stdin); print(json.dumps({"posts": p}))' > body.json
+          curl -sS -m 120 --retry 3 --retry-delay 20 --retry-all-errors -H "x-report-key: $REPORT_KEY" -H 'Content-Type: application/json' \
+            --data-binary @body.json "https://www.gigsintoon.co.uk/api/manage/mark-sent?dry=$DRY" -o out.json
+          python3 -m json.tool out.json
+          python3 -c 'import json; o=json.load(open("out.json")); assert o.get("ok"), o'
