@@ -23,6 +23,6 @@ jobs:
         run: |
           printf '%s' "$POSTS" | python3 -c 'import json,sys; p=json.load(sys.stdin); print(json.dumps({"posts": p}))' > body.json
           curl -sS -m 120 --retry 3 --retry-delay 20 --retry-all-errors -H "x-report-key: $REPORT_KEY" -H 'Content-Type: application/json' \
-            --data-binary @body.json "https://www.gigsintoon.co.uk/api/manage/mark-sent?dry=$DRY" -o out.json
+            --data-binary @body.json "https://www.gigsintoon.co.uk/api/nightly/mark-sent?dry=$DRY" -o out.json -w "HTTP %{http_code}\n"
           python3 -m json.tool out.json
           python3 -c 'import json; o=json.load(open("out.json")); assert o.get("ok"), o'

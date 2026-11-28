@@ -111,3 +111,15 @@ app.http('nightlyUrls', {
     } catch (err) { return fail(context, err); }
   }
 });
+
+// POST /api/nightly/mark-sent (header x-report-key) - the "Mark sent posts" workflow: same as /api/manage/mark-sent
+app.http('nightlyMarkSent', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'nightly/mark-sent',
+  handler: async (request, context) => {
+    if (!isRunner(request)) return json({ error: 'Only the overnight run.' }, 403);
+    const body = await request.text();
+    return runAsOwner('manage/mark-sent', 'POST', '/api/manage/mark-sent' + (request.query.get('dry') === '1' ? '?dry=1' : ''), body, context);
+  }
+});
