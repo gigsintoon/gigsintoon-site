@@ -142,6 +142,7 @@ async function daysIn(request, route) {
     if (!t) return null;
     let body = JSON.parse(t);
     if (route === 'manage/release-fix' && body && Array.isArray(body.fixes)) body = body.fixes;
+    if (route === 'manage/mark-sent' && body && Array.isArray(body.posts)) body = body.posts;
     const out = new Set(), ids = [];
     let unknownItem = false;
     for (const item of [].concat(body)) {
