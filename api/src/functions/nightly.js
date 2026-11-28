@@ -123,3 +123,19 @@ app.http('nightlyMarkSent', {
     return runAsOwner('manage/mark-sent', 'POST', '/api/manage/mark-sent' + (request.query.get('dry') === '1' ? '?dry=1' : ''), body, context);
   }
 });
+
+// POST /api/nightly/match-covers (header x-report-key) {posts:[{key,date,text,images}]} -> the release each post is
+// about and its covers on Michael's own storage, so the nightly check can swap hotlinked images. Reads only.
+app.http('nightlyMatchCovers', {
+  methods: ['POST'],
+  authLevel: 'anonymous',
+  route: 'nightly/match-covers',
+  handler: async (request, context) => {
+    if (!isRunner(request)) return json({ error: 'Only the overnight run.' }, 403);
+    try {
+      const b = await request.json().catch(() => ({}));
+      if (!Array.isArray(b.posts)) return json({ ok: false, error: 'Give posts' }, 400);
+      return json({ ok: true, results: await require('../save').matchCovers(b.posts) });
+    } catch (err) { return fail(context, err); }
+  }
+});
